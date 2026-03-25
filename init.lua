@@ -42,13 +42,15 @@ local function showPill(mode)
     if not pill then createPill() end
     pill:frame(getPillFrame())
     pill:show()
-    if mode then
-        hs.timer.doAfter(0.1, function()
-            if pill then
+    -- Trigger CSS enter animation
+    hs.timer.doAfter(0.02, function()
+        if pill then
+            pill:evaluateJavaScript('show()')
+            if mode then
                 pill:evaluateJavaScript('setMode("' .. mode .. '")')
             end
-        end)
-    end
+        end
+    end)
 end
 
 local function stopLevelsPolling()
@@ -60,7 +62,7 @@ end
 
 local function startLevelsPolling()
     stopLevelsPolling()
-    levelsTimer = hs.timer.doEvery(0.1, function()
+    levelsTimer = hs.timer.doEvery(0.05, function()
         if not recording or not pill then
             stopLevelsPolling()
             return
@@ -83,7 +85,13 @@ end
 
 local function hidePill()
     stopLevelsPolling()
-    if pill then pill:hide() end
+    if pill then
+        pill:evaluateJavaScript('hide()')
+        -- Wait for CSS exit animation (100ms) before actually hiding
+        hs.timer.doAfter(0.12, function()
+            if pill then pill:hide() end
+        end)
+    end
 end
 
 local function pasteText(text)
@@ -108,8 +116,9 @@ local function toggleSTT()
     if busy then return end
     busy = true
 
-    -- If recording too short — cancel instead of transcribing
+    -- If recording too short — cancel instantly
     if recording then
+        stopLevelsPolling()
         local elapsed = hs.timer.secondsSinceEpoch() - recordingStartTime
         if elapsed < MIN_RECORDING_SEC then
             recording = false
@@ -119,7 +128,10 @@ local function toggleSTT()
             hs.http.asyncPost(DAEMON .. "/cancel", "", nil, function() end)
             return
         end
-        showPill("transcribing")
+        if pill then pill:evaluateJavaScript("fadeOut()") end
+        hs.timer.doAfter(0.3, function()
+            showPill("transcribing")
+        end)
     end
 
     hs.http.asyncPost(
@@ -186,6 +198,7 @@ end)
 escHotkey = hs.hotkey.new({}, "escape", function()
     recording = false
     busy = false
+    stopLevelsPolling()
     hidePill()
     escHotkey:disable()
     hs.http.asyncPost(DAEMON .. "/cancel", "", nil, function() end)

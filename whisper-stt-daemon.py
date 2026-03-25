@@ -136,24 +136,26 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    # Symmetric shape: center bars get full level, edges get less
+    BAR_WEIGHTS = [0.3, 0.5, 0.7, 0.85, 0.95, 1.0, 0.95, 0.85, 0.7, 0.5, 0.3]
+
     def _get_levels(self):
         hist = state["rms_history"]
         if not hist:
             self._respond({"levels": [0.0] * NUM_BARS})
             return
-        # Take last NUM_BARS*2 values, pair them up for smoother bars
-        recent = hist[-(NUM_BARS * 2):]
+        # Use last few samples for current level
+        recent = hist[-4:]
+        level = min(1.0, max(recent) * 20.0)
+        # Add slight variation per bar using recent history
         bars = []
         for i in range(NUM_BARS):
-            idx = int(i * len(recent) / NUM_BARS)
-            end = int((i + 1) * len(recent) / NUM_BARS)
-            chunk = recent[idx:end] if idx < len(recent) else [0.0]
-            if not chunk:
-                chunk = [0.0]
-            val = max(chunk)
-            # Normalize: typical speech RMS ~0.01-0.1, scale to 0-1
-            normalized = min(1.0, val * 15.0)
-            bars.append(round(normalized, 2))
+            w = self.BAR_WEIGHTS[i]
+            # Pick a slightly different RMS sample per bar for natural jitter
+            idx = min(i % len(hist), len(hist) - 1)
+            jitter = min(1.0, hist[-(idx + 1)] * 20.0) if hist else 0.0
+            val = level * w * 0.7 + jitter * w * 0.3
+            bars.append(round(min(1.0, val), 2))
         self._respond({"levels": bars})
 
     def _switch_model(self):

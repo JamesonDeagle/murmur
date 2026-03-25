@@ -27,11 +27,36 @@
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    /* Hidden by default */
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 0.1s ease-out, transform 0.1s ease-out,
+                border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                gap 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .pill.transcribing {
-    animation: pulse 0.8s ease-in-out infinite;
-    background: rgba(60, 60, 60, 0.9);
+  .pill.visible {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.1s ease-out, transform 0.1s ease-out,
+                border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                gap 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .pill.loading {
+    border-radius: 50%;
+    padding: 14px;
+    gap: 0;
+    width: 56px;
+    height: 56px;
+    overflow: hidden;
   }
 
   .bar {
@@ -39,15 +64,18 @@
     border-radius: 2px;
     background: rgba(255, 255, 255, 0.9);
     animation: wave 1s ease-in-out infinite;
+    transition: transform 0.08s ease-out, opacity 0.3s ease-out,
+                width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
   }
 
-  .pill.transcribing .bar {
-    animation: shrink 0.3s ease-out forwards;
-    opacity: 0.6;
-  }
-
-  @keyframes shrink {
-    to { transform: scaleY(0.2); }
+  /* Loading state: all bars collapse except the spinner ring */
+  .pill.loading .bar {
+    width: 0;
+    height: 0;
+    opacity: 0;
   }
 
   .bar:nth-child(1)  { height: 8px;  animation-delay: -0.9s; }
@@ -62,14 +90,32 @@
   .bar:nth-child(10) { height: 14px; animation-delay: -0.05s; }
   .bar:nth-child(11) { height: 8px;  animation-delay: 0s; }
 
+  /* Spinner ring — inside pill, hidden by default */
+  .spinner {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border: 2.5px solid rgba(255, 255, 255, 0.15);
+    border-top-color: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0);
+    transition: opacity 0.3s ease-out 0.2s, transform 0.3s ease-out 0.2s;
+  }
+
+  .pill.loading .spinner {
+    opacity: 1;
+    transform: scale(1);
+    animation: spin 0.7s linear infinite;
+  }
+
   @keyframes wave {
     0%, 100% { transform: scaleY(0.3); }
     50%      { transform: scaleY(1); }
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.5; }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>
 </head>
@@ -86,26 +132,58 @@
     <div class="bar"></div>
     <div class="bar"></div>
     <div class="bar"></div>
+    <div class="spinner"></div>
   </div>
   <script>
+    var pill = document.getElementById('pill');
     var bars = document.querySelectorAll('.bar');
 
+    function show() {
+      pill.style.width = '';
+      pill.style.height = '';
+      pill.classList.remove('loading');
+      pill.classList.add('visible');
+    }
+
+    function hide() {
+      pill.classList.remove('visible', 'loading');
+      pill.style.width = '';
+      pill.style.height = '';
+    }
+
     function setMode(mode) {
-      var pill = document.getElementById('pill');
-      pill.className = 'pill' + (mode === 'transcribing' ? ' transcribing' : '');
-      // Reset bars to CSS animation when not receiving live levels
-      if (mode !== 'recording') {
+      if (mode === 'transcribing') {
+        // Morph pill into circle with spinner
+        pill.classList.add('loading');
+      } else if (mode === 'recording') {
+        pill.classList.remove('loading');
+      } else {
+        pill.classList.remove('loading');
         for (var i = 0; i < bars.length; i++) {
+          bars[i].style.animation = '';
           bars[i].style.transform = '';
+          bars[i].style.transition = '';
         }
       }
     }
 
     function setLevels(levels) {
       for (var i = 0; i < bars.length && i < levels.length; i++) {
-        var v = Math.max(0.15, levels[i]); // minimum visible height
+        var v = Math.max(0.15, levels[i]);
         bars[i].style.animation = 'none';
         bars[i].style.transform = 'scaleY(' + v + ')';
+      }
+    }
+
+    function fadeOut() {
+      // Lock current dimensions so CSS can transition from them
+      var rect = pill.getBoundingClientRect();
+      pill.style.width = rect.width + 'px';
+      pill.style.height = rect.height + 'px';
+      for (var i = 0; i < bars.length; i++) {
+        bars[i].style.animation = 'none';
+        bars[i].style.transition = 'transform 0.3s ease-out';
+        bars[i].style.transform = 'scaleY(0.15)';
       }
     }
   </script>
