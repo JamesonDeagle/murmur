@@ -1,4 +1,4 @@
--- Whisper STT — Cmd+F5 toggle with waveform overlay
+-- Whisper STT — Option+Space toggle with waveform overlay
 -- Daemon: http://127.0.0.1:19876
 
 local DAEMON = "http://127.0.0.1:19876"
@@ -194,12 +194,12 @@ local CONFIG_PATH = os.getenv("HOME") .. "/.whisper-stt/config.json"
 
 local function loadConfig()
     local f = io.open(CONFIG_PATH, "r")
-    if not f then return { mods = {"cmd"}, key = "F5" } end
+    if not f then return { mods = {"alt"}, key = "space" } end
     local raw = f:read("*a")
     f:close()
     local ok, data = pcall(hs.json.decode, raw)
     if ok and data and data.key then return data end
-    return { mods = {"cmd"}, key = "F5" }
+    return { mods = {"alt"}, key = "space" }
 end
 
 local function saveConfig(cfg)

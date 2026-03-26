@@ -30,7 +30,7 @@ echo ""
 echo -e "${BOLD}  Whisper STT Installer${NC}"
 echo -e "  Local speech-to-text for macOS (Apple Silicon)"
 echo -e "  Model: whisper-large-v3-turbo (MLX)"
-echo -e "  Hotkey: Cmd+F5"
+echo -e "  Hotkey: Option+Space"
 echo ""
 
 # --- Check Apple Silicon ---
@@ -155,10 +155,7 @@ info "LaunchAgent created"
 
 # --- Disable Apple Dictation shortcut ---
 defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
-# Disable VoiceOver on Cmd+F5
-defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 59 '{ enabled = 0; value = { parameters = (65535, 96, 1048576); type = standard; }; }'
-/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u 2>/dev/null || true
-info "System shortcuts updated"
+info "System shortcuts checked"
 
 # --- Start daemon ---
 launchctl load "$PLIST_PATH"
@@ -184,9 +181,9 @@ echo ""
 echo -e "${BOLD}  Installation complete!${NC}"
 echo ""
 echo -e "  ${BOLD}Usage:${NC}"
-echo -e "    Cmd+F5  — start/stop recording"
+echo -e "    Option+Space  — start/stop recording"
 echo -e "    Escape  — cancel recording"
-echo -e "    Menubar W:turbo — switch models"
+echo -e "    Menubar icon — switch models, change hotkey"
 echo ""
 echo -e "  ${BOLD}Manual steps required:${NC}"
 echo -e "    1. Hammerspoon will ask for Accessibility permission — allow it"
