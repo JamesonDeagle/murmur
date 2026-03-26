@@ -1,4 +1,4 @@
--- Whisper STT — Option+Space toggle with waveform overlay
+-- Murmur — Option+Space toggle with waveform overlay
 -- Daemon: http://127.0.0.1:19876
 
 local DAEMON = "http://127.0.0.1:19876"
@@ -375,4 +375,4 @@ createPill()
 -- Warm up HTTP connection to daemon
 hs.http.asyncGet(DAEMON .. "/status", nil, function() end)
 
-hs.alert.show("Whisper STT loaded", 1)
+hs.alert.show("Murmur ready", 1)

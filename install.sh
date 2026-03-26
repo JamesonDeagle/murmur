@@ -27,9 +27,9 @@ LOG_DIR="$INSTALL_DIR/logs"
 HS_DIR="$HOME/.hammerspoon"
 
 echo ""
-echo -e "${BOLD}  Whisper STT Installer${NC}"
+echo -e "${BOLD}  Murmur Installer${NC}"
 echo -e "  Local speech-to-text for macOS (Apple Silicon)"
-echo -e "  Model: whisper-large-v3-turbo (MLX)"
+echo -e "  Model: Whisper Large V3 Turbo (MLX)"
 echo -e "  Hotkey: Option+Space"
 echo ""
 
@@ -178,7 +178,7 @@ open -a Hammerspoon
 info "Hammerspoon launched"
 
 echo ""
-echo -e "${BOLD}  Installation complete!${NC}"
+echo -e "${BOLD}  Murmur installed!${NC}"
 echo ""
 echo -e "  ${BOLD}Usage:${NC}"
 echo -e "    Option+Space  — start/stop recording"

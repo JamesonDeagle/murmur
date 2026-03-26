@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Удаляю Whisper STT..."
+echo "Removing Murmur..."
 
 # Stop daemon
 launchctl unload "$HOME/Library/LaunchAgents/com.whisper.stt-daemon.plist" 2>/dev/null || true
@@ -14,7 +14,7 @@ rm -rf "$HOME/.whisper-stt"
 if grep -q "Whisper STT" "$HOME/.hammerspoon/init.lua" 2>/dev/null; then
     rm -f "$HOME/.hammerspoon/init.lua"
     rm -f "$HOME/.hammerspoon/waveform.html"
-    echo "Hammerspoon конфиг удалён"
+    echo "Hammerspoon config removed"
 fi
 
 echo "Готово. Hammerspoon можно удалить: brew uninstall --cask hammerspoon"

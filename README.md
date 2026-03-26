@@ -1,14 +1,14 @@
-# Whisper STT for macOS
+# Murmur
 
 **Type at the speed of thought.** Speak naturally, get perfectly punctuated text — instantly, privately, offline.
 
-Whisper STT replaces Apple Dictation with OpenAI's Whisper running natively on Apple Silicon. No cloud, no subscription, no data leaves your Mac. Just press **Option+Space**, speak, and your words appear as text.
+Murmur replaces Apple Dictation with OpenAI's Whisper running natively on Apple Silicon. No cloud, no subscription, no data leaves your Mac. Just press **Option+Space**, speak, and your words appear as text.
 
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Privacy](https://img.shields.io/badge/privacy-100%25%20offline-brightgreen)
 
 ## Why Whisper STT?
 
-| | Apple Dictation | Whisper STT |
+| | Apple Dictation | Murmur |
 |---|---|---|
 | **Privacy** | Sends audio to Apple servers | 100% local, never leaves your Mac |
 | **Mixed languages** | Struggles with code-switching | Handles naturally (e.g. Russian + English) |
@@ -34,7 +34,7 @@ Whisper STT replaces Apple Dictation with OpenAI's Whisper running natively on A
 ## Quick Start
 
 ```bash
-git clone https://github.com/JamesonDeagle/whisper-stt.git
+git clone https://github.com/JamesonDeagle/murmur.git
 cd whisper-stt
 ./install.sh
 ```
