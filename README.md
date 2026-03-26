@@ -39,7 +39,7 @@ cd whisper-stt
 ./install.sh
 ```
 
-Or just double-click **Install.command** in Finder.
+Or double-click **Install.command** in Finder. If macOS shows a security warning, right-click the file → **Open** → click **Open** in the dialog.
 
 The installer handles everything: Homebrew, Hammerspoon, Python environment, model download, daemon setup.
 
