@@ -11,6 +11,7 @@ HTTP server on 127.0.0.1:19876:
 
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -21,13 +22,13 @@ import sounddevice as sd
 
 MODELS = {
     "turbo": "mlx-community/whisper-large-v3-turbo",
-    "medium": "mlx-community/whisper-medium-mlx",
     "large": "mlx-community/whisper-large-v3-mlx",
 }
 
 SAMPLE_RATE = 16000
 PORT = 19876
 HOST = "127.0.0.1"
+CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".whisper-stt", "config.json")
 NUM_BARS = 11
 LEVELS_HISTORY = 22  # keep ~22 blocks for rolling window
 
@@ -38,12 +39,35 @@ logging.basicConfig(
 )
 log = logging.getLogger("whisper-stt")
 
+def read_model_from_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            cfg = json.load(f)
+        name = cfg.get("model", "turbo")
+        return name if name in MODELS else "turbo"
+    except Exception:
+        return "turbo"
+
+
+def save_model_to_config(name):
+    cfg = {}
+    try:
+        with open(CONFIG_PATH) as f:
+            cfg = json.load(f)
+    except Exception:
+        pass
+    cfg["model"] = name
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f)
+
+
 lock = threading.Lock()
 state = {
     "status": "loading",
     "recording": False,
     "audio_chunks": [],
-    "active_model": "turbo",
+    "active_model": read_model_from_config(),
     "rms_history": [],
 }
 
@@ -190,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
 
         ok = load_model(name)
         if ok:
+            save_model_to_config(name)
             self._respond({"status": "ok", "model": name})
         else:
             self._respond({"error": f"Failed to load {name} (not downloaded?)", "model": state["active_model"]})

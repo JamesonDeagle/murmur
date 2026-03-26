@@ -104,10 +104,9 @@ Switch models from the menubar. Models are downloaded on first use.
 | Model | Parameters | Speed | Quality | Size |
 |-------|-----------|-------|---------|------|
 | **turbo** (default) | 809M | ~1s | Excellent | 1.5 GB |
-| medium | 769M | ~1s | Good | 1.5 GB |
 | large | 1.5B | ~2-3s | Best | 3 GB |
 
-The turbo model is a distilled version of large-v3 with 95-98% of its quality at 2-3x speed. Recommended for most use cases.
+Turbo is installed by default. It's a distilled version of large-v3 with 95-98% of its quality at 2-3x speed — recommended for most use cases. Large downloads on first selection from the menubar.
 
 ## API
 
@@ -142,8 +141,7 @@ Removes the daemon, LaunchAgent, virtual environment, and Hammerspoon config. Ha
 ~/.hammerspoon/
 ├── init.lua                 # Hotkey, overlay, menubar
 ├── waveform.html            # Animated waveform + loader
-├── icon.png                 # Menubar icon (18x18)
-└── icon@2x.png              # Menubar icon (36x36 Retina)
+└── icon.pdf                 # Vector menubar icon (22x22pt, Apple HIG)
 
 ~/Library/LaunchAgents/
 └── com.whisper.stt-daemon.plist

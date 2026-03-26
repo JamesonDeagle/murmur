@@ -275,7 +275,7 @@ local menubar = hs.menubar.new()
 local activeModel = "turbo"
 
 local function updateMenubar()
-    local iconPath = os.getenv("HOME") .. "/.hammerspoon/icon.png"
+    local iconPath = os.getenv("HOME") .. "/.hammerspoon/icon.pdf"
     menubar:setIcon(iconPath, true)
     menubar:setTitle("")
 end
@@ -332,9 +332,7 @@ menubar:setMenu(function()
         { title = "Model", menu = {
             { title = "turbo (fast)", fn = function() switchModel("turbo") end,
               checked = (activeModel == "turbo") },
-            { title = "medium", fn = function() switchModel("medium") end,
-              checked = (activeModel == "medium") },
-            { title = "large (best)", fn = function() switchModel("large") end,
+            { title = "large (best quality)", fn = function() switchModel("large") end,
               checked = (activeModel == "large") },
         }},
         { title = "-" },

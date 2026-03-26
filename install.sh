@@ -109,6 +109,7 @@ fi
 
 cp "$SCRIPT_DIR/init.lua" "$HS_DIR/init.lua"
 cp "$SCRIPT_DIR/waveform.html" "$HS_DIR/waveform.html"
+cp "$SCRIPT_DIR/icon.pdf" "$HS_DIR/icon.pdf"
 info "Hammerspoon config installed"
 
 # --- Create LaunchAgent ---
