@@ -374,6 +374,17 @@ menubar:setMenu(function()
                 end
             end)
         end },
+        { title = "-" },
+        { title = "Quit Murmur", fn = function()
+            if daemonTask and daemonTask:isRunning() then
+                daemonTask:terminate()
+            end
+            if mainHotkey then mainHotkey:delete() end
+            stopLevelsPolling()
+            hidePill()
+            if menubar then menubar:delete() end
+            hs.alert.show("Murmur stopped", 1)
+        end },
     }
 end)
 
