@@ -30,7 +30,9 @@ local function ensureDaemon()
 
     if daemonTask and daemonTask:isRunning() then return end
 
-    daemonTask = hs.task.new(DAEMON_PYTHON, nil, {DAEMON_SCRIPT})
+    daemonTask = hs.task.new(DAEMON_PYTHON, function(exitCode)
+        print("Murmur daemon exited: " .. tostring(exitCode))
+    end, {DAEMON_SCRIPT})
     daemonTask:setEnvironment({
         HOME = os.getenv("HOME"),
         PATH = os.getenv("HOME") .. "/.whisper-stt/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
