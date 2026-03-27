@@ -46,11 +46,7 @@ Murmur replaces Apple Dictation with OpenAI's Whisper running natively on Apple 
 curl -fsSL https://raw.githubusercontent.com/JamesonDeagle/murmur/main/install.sh | bash
 ```
 
-### After install
-
-1. Allow Hammerspoon's Accessibility permission when macOS asks
-2. System Settings > Keyboard > Dictation > change Shortcut to "Off"
-3. Press **Option+Space** and start talking
+The installer opens macOS permission dialogs automatically — just toggle them on when prompted. After install, press **Option+Space** and start talking.
 
 ## Usage
 

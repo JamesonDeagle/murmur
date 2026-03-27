@@ -2,6 +2,8 @@
 -- Daemon: http://127.0.0.1:19876
 
 local DAEMON = "http://127.0.0.1:19876"
+local DAEMON_SCRIPT = os.getenv("HOME") .. "/.whisper-stt/whisper-stt-daemon.py"
+local DAEMON_PYTHON = os.getenv("HOME") .. "/.whisper-stt/venv/bin/python3"
 local PILL_W = 260
 local PILL_H = 140
 local PILL_BOTTOM_MARGIN = 60
@@ -14,6 +16,30 @@ local MIN_RECORDING_SEC = 1.0
 -- Waveform pill (webview)
 local pill = nil
 local levelsTimer = nil
+
+-- Launch the STT daemon as a child process of Hammerspoon
+-- so it inherits Hammerspoon's microphone permission from macOS.
+-- A LaunchAgent cannot reliably get mic access as a background process.
+local daemonTask = nil
+local function ensureDaemon()
+    local code = nil
+    pcall(function()
+        code = select(1, hs.http.get(DAEMON .. "/status", nil))
+    end)
+    if code == 200 then return end
+
+    if daemonTask and daemonTask:isRunning() then return end
+
+    daemonTask = hs.task.new(DAEMON_PYTHON, nil, {DAEMON_SCRIPT})
+    daemonTask:setEnvironment({
+        HOME = os.getenv("HOME"),
+        PATH = os.getenv("HOME") .. "/.whisper-stt/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    })
+    daemonTask:start()
+end
+
+ensureDaemon()
+hs.timer.doEvery(30, ensureDaemon)
 
 local function getPillFrame()
     local screen = hs.screen.mainScreen():frame()

@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
 
-# Whisper STT — local speech-to-text for macOS (Apple Silicon)
-# Cmd+F5: start/stop recording, Esc: cancel
+# Murmur — local speech-to-text for macOS (Apple Silicon)
+# Option+Space: start/stop recording, Esc: cancel
 #
-# Installs: Hammerspoon, Python venv with mlx-whisper, LaunchAgent
+# Installs: Hammerspoon, Python venv with mlx-whisper
+# Hammerspoon launches the daemon and inherits mic permission
 # Runs 100% locally, nothing is sent to the internet
 
 RED='\033[0;31m'
@@ -21,8 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/.whisper-stt"
 VENV_DIR="$INSTALL_DIR/venv"
 DAEMON_SCRIPT="$INSTALL_DIR/whisper-stt-daemon.py"
-PLIST_NAME="com.whisper.stt-daemon"
-PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
 LOG_DIR="$INSTALL_DIR/logs"
 HS_DIR="$HOME/.hammerspoon"
 
@@ -98,13 +97,23 @@ cp "$SCRIPT_DIR/whisper-stt-daemon.py" "$DAEMON_SCRIPT"
 chmod +x "$DAEMON_SCRIPT"
 info "Daemon script installed"
 
+# --- Remove old LaunchAgent if present (from previous versions) ---
+OLD_PLIST="$HOME/Library/LaunchAgents/com.whisper.stt-daemon.plist"
+if [ -f "$OLD_PLIST" ]; then
+    launchctl unload "$OLD_PLIST" 2>/dev/null || true
+    rm -f "$OLD_PLIST"
+    info "Removed old LaunchAgent (daemon now runs via Hammerspoon)"
+fi
+
 # --- Setup Hammerspoon ---
 mkdir -p "$HS_DIR"
 
 # Backup existing init.lua
 if [ -f "$HS_DIR/init.lua" ]; then
-    cp "$HS_DIR/init.lua" "$HS_DIR/init.lua.backup.$(date +%s)"
-    warn "Existing init.lua saved as backup"
+    if ! grep -q "Murmur" "$HS_DIR/init.lua" 2>/dev/null; then
+        cp "$HS_DIR/init.lua" "$HS_DIR/init.lua.backup.$(date +%s)"
+        warn "Existing init.lua saved as backup"
+    fi
 fi
 
 cp "$SCRIPT_DIR/init.lua" "$HS_DIR/init.lua"
@@ -112,58 +121,50 @@ cp "$SCRIPT_DIR/waveform.html" "$HS_DIR/waveform.html"
 cp "$SCRIPT_DIR/icon.pdf" "$HS_DIR/icon.pdf"
 info "Hammerspoon config installed"
 
-# --- Create LaunchAgent ---
-# Unload existing if present
-launchctl unload "$PLIST_PATH" 2>/dev/null || true
-
-cat > "$PLIST_PATH" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>$PLIST_NAME</string>
-    <key>Comment</key>
-    <string>Local Whisper STT daemon with pre-loaded MLX model</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
-    <key>ProgramArguments</key>
-    <array>
-      <string>$VENV_DIR/bin/python3</string>
-      <string>$DAEMON_SCRIPT</string>
-    </array>
-    <key>StandardOutPath</key>
-    <string>$LOG_DIR/whisper-stt.log</string>
-    <key>StandardErrorPath</key>
-    <string>$LOG_DIR/whisper-stt.err.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-      <key>HOME</key>
-      <string>$HOME</string>
-      <key>PATH</key>
-      <string>$VENV_DIR/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-  </dict>
-</plist>
-PLIST
-
-info "LaunchAgent created"
-
 # --- Disable Apple Dictation shortcut ---
 defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
 info "System shortcuts checked"
 
-# --- Start daemon ---
-launchctl load "$PLIST_PATH"
-info "Daemon started"
+# --- Open permissions that macOS requires ---
+info "Opening macOS permissions..."
+
+# Accessibility — Hammerspoon needs this for hotkeys
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+echo ""
+echo -e "  ${YELLOW}>>> Add Hammerspoon to Accessibility and click the toggle ON${NC}"
+echo -e "  ${YELLOW}    Press Enter when done...${NC}"
+read -r
+
+# Microphone — Hammerspoon needs this for the daemon it spawns
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+echo ""
+echo -e "  ${YELLOW}>>> Click '+', select /Applications/Hammerspoon.app, toggle ON${NC}"
+echo -e "  ${YELLOW}    Press Enter when done...${NC}"
+read -r
+
+info "Permissions configured"
+
+# --- Launch Hammerspoon (it will start the daemon automatically) ---
+osascript -e 'tell application "Hammerspoon" to quit' 2>/dev/null || true
+sleep 1
+open -a Hammerspoon
+info "Hammerspoon launched"
+
+# Wait for daemon to come up (Hammerspoon spawns it)
+echo -ne "${GREEN}[+]${NC} Waiting for daemon startup..."
+for i in $(seq 1 45); do
+    STATUS=$(curl -s http://127.0.0.1:19876/status 2>/dev/null || echo "")
+    if echo "$STATUS" | grep -q '"idle"\|"loading"'; then
+        echo -e " ${GREEN}OK${NC}"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
 # Wait for model warmup
 echo -ne "${GREEN}[+]${NC} Waiting for model warmup..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
     STATUS=$(curl -s http://127.0.0.1:19876/status 2>/dev/null || echo "")
     if echo "$STATUS" | grep -q '"idle"'; then
         echo -e " ${GREEN}OK${NC}"
@@ -173,10 +174,6 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# --- Launch Hammerspoon ---
-open -a Hammerspoon
-info "Hammerspoon launched"
-
 echo ""
 echo -e "${BOLD}  Murmur installed!${NC}"
 echo ""
@@ -184,12 +181,6 @@ echo -e "  ${BOLD}Usage:${NC}"
 echo -e "    Option+Space  — start/stop recording"
 echo -e "    Escape  — cancel recording"
 echo -e "    Menubar icon — switch models, change hotkey"
-echo ""
-echo -e "  ${BOLD}Manual steps required:${NC}"
-echo -e "    1. Hammerspoon will ask for Accessibility permission — allow it"
-echo -e "    2. System Settings > Keyboard > Dictation > turn OFF"
-echo -e "       Change Shortcut to \"Off\" or \"Press Control Twice\""
-echo -e "    3. Hammerspoon menubar (hammer icon) > Reload Config"
 echo ""
 echo -e "  ${BOLD}Verify:${NC}"
 echo -e "    curl http://127.0.0.1:19876/status"

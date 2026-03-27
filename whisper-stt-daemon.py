@@ -118,13 +118,32 @@ def audio_callback(indata, frames, time_info, status):
             del hist[:-LEVELS_HISTORY]
 
 
-audio_stream = sd.InputStream(
-    samplerate=SAMPLE_RATE,
-    channels=1,
-    dtype="float32",
-    callback=audio_callback,
-    blocksize=1024,
-)
+# Microphone stream is opened on-demand (only while recording) so macOS
+# does not show the orange privacy indicator when Murmur is idle.
+audio_stream = None
+
+
+def start_audio_stream():
+    global audio_stream
+    if audio_stream is not None:
+        return
+    audio_stream = sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="float32",
+        callback=audio_callback,
+        blocksize=1024,
+    )
+    audio_stream.start()
+
+
+def stop_audio_stream():
+    global audio_stream
+    if audio_stream is None:
+        return
+    audio_stream.stop()
+    audio_stream.close()
+    audio_stream = None
 
 
 PUNCTUATION_PROMPT = "Здравствуйте. Вот, что я хотел сказать: Hello, my name is Anton."
@@ -230,8 +249,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if not state["recording"]:
                 state["audio_chunks"] = []
+                state["rms_history"] = []
                 state["recording"] = True
                 state["status"] = "recording"
+                start_audio_stream()
                 log.info("Recording started")
                 self._respond({"status": "recording"})
                 return
@@ -240,6 +261,7 @@ class Handler(BaseHTTPRequestHandler):
                 state["status"] = "transcribing"
                 chunks = state["audio_chunks"]
                 state["audio_chunks"] = []
+                stop_audio_stream()
 
         if not chunks:
             log.warning("No audio captured")
@@ -266,6 +288,7 @@ class Handler(BaseHTTPRequestHandler):
             state["recording"] = False
             state["audio_chunks"] = []
             state["status"] = "idle"
+            stop_audio_stream()
         log.info("Cancelled")
         self._respond({"status": "idle"})
 
@@ -282,15 +305,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    audio_stream.start()
-    log.info("Audio stream started (device=%s, rate=%d)", sd.default.device[0], SAMPLE_RATE)
+    log.info("Listening on %s:%d", HOST, PORT)
     threading.Thread(target=load_model, daemon=True).start()
     server = HTTPServer((HOST, PORT), Handler)
-    log.info("Listening on %s:%d", HOST, PORT)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         log.info("Shutting down")
     finally:
-        audio_stream.stop()
+        stop_audio_stream()
         server.server_close()
