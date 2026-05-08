@@ -23,14 +23,15 @@
 - **Liquid Glass UI** — native macOS Tahoe design with adaptive dark/light theme
 - **Microphone selector** — choose input device, defaults to built-in mic (no Bluetooth speaker issues)
 - **Orbital loader** — custom animated transcription indicator
-- **Model choice** — turbo (fast) or large (best quality)
+- **Model choice** — turbo (fast) or large (best quality), with download progress (size, speed, ETA) and persisted across launches
 - **Global hotkey** — Option+Space works in any app, any Space
+- **Multi-monitor aware** — waveform overlay always lands on the screen under your cursor
 - **Smart paste** — saves clipboard, pastes text, restores clipboard
 
 ## Install
 
 ### From DMG
-1. Download `Murmur-3.1.dmg` from [Releases](../../releases)
+1. Download `Murmur-3.2.dmg` from [Releases](../../releases)
 2. Drag `Murmur.app` to `/Applications`
 3. Launch — grant Microphone and Accessibility permissions when prompted
 4. Done! Use **Option+Space** to start
