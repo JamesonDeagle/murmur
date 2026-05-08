@@ -1,6 +1,26 @@
 import Foundation
 import CWhisper
 
+/// Snapshot of an in-flight model download. Updated several times per second
+/// while a model file is being fetched from HuggingFace.
+struct DownloadProgress: Sendable, Equatable {
+    let modelName: String
+    let bytesDownloaded: Int64
+    let totalBytes: Int64           // -1 if unknown (server didn't send Content-Length)
+    let bytesPerSecond: Double      // smoothed (EMA)
+
+    var fraction: Double {
+        guard totalBytes > 0 else { return 0 }
+        return min(1.0, max(0.0, Double(bytesDownloaded) / Double(totalBytes)))
+    }
+
+    var etaSeconds: Double? {
+        guard totalBytes > 0, bytesPerSecond > 0 else { return nil }
+        let remaining = max(0, totalBytes - bytesDownloaded)
+        return Double(remaining) / bytesPerSecond
+    }
+}
+
 actor TranscriptionEngine {
     private var ctx: OpaquePointer?
     private let modelsDir: URL
@@ -16,17 +36,37 @@ actor TranscriptionEngine {
         try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
     }
 
-    func loadModel(name: String) async {
-        if let ctx = ctx {
-            whisper_free(ctx)
+    func loadModel(
+        name: String,
+        onProgress: (@Sendable (DownloadProgress) -> Void)? = nil
+    ) async {
+        mlog("loadModel: \(name)")
+
+        // CRITICAL: nil out BEFORE free so any concurrent transcribe() call
+        // suspended on this actor's queue sees nil instead of a dangling pointer.
+        // Without this, switching models (especially while a slow download is
+        // in flight on `await downloadModel`) caused EXC_BAD_ACCESS in
+        // whisper_full when Option+Space was pressed mid-switch.
+        if let oldCtx = ctx {
+            ctx = nil
+            whisper_free(oldCtx)
         }
 
-        guard let filename = models[name] else { return }
+        guard let filename = models[name] else {
+            mlog("loadModel: unknown model name '\(name)'")
+            return
+        }
         let modelPath = modelsDir.appendingPathComponent(filename)
 
-        // Download model if not present
+        // Download model if not present (large is ~3GB — can take minutes)
         if !FileManager.default.fileExists(atPath: modelPath.path) {
-            await downloadModel(name: name, to: modelPath)
+            mlog("loadModel: downloading '\(name)' to \(modelPath.path)")
+            await downloadModel(name: name, to: modelPath, onProgress: onProgress)
+            // Verify download succeeded — partial/failed download leaves no file
+            guard FileManager.default.fileExists(atPath: modelPath.path) else {
+                mlog("loadModel: download failed, no model file at \(modelPath.path)")
+                return
+            }
         }
 
         var params = whisper_context_default_params()
@@ -101,7 +141,11 @@ actor TranscriptionEngine {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func downloadModel(name: String, to localPath: URL) async {
+    private func downloadModel(
+        name: String,
+        to localPath: URL,
+        onProgress: (@Sendable (DownloadProgress) -> Void)?
+    ) async {
         let baseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
         guard let filename = models[name],
               let url = URL(string: "\(baseURL)/\(filename)") else { return }
@@ -109,11 +153,17 @@ actor TranscriptionEngine {
         print("Downloading model '\(name)' from \(url)...")
 
         do {
-            let (tempURL, _) = try await URLSession.shared.download(from: url)
+            let tempURL = try await ProgressDownloader.download(
+                url: url,
+                modelName: name,
+                onProgress: onProgress
+            )
+            // Make sure target directory exists, then move into place
+            try? FileManager.default.removeItem(at: localPath)
             try FileManager.default.moveItem(at: tempURL, to: localPath)
-            print("Model downloaded: \(localPath.path)")
+            mlog("Model downloaded: \(localPath.path)")
         } catch {
-            print("Failed to download model: \(error)")
+            mlog("Failed to download model: \(error)")
         }
     }
 

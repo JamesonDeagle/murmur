@@ -41,6 +41,9 @@ class AppState: ObservableObject {
     @Published var state: RecordingState = .loading
     @Published var activeModel: String = "turbo"
     @Published var selectedInputDeviceUID: String = ""
+    /// Set while a model file is being downloaded from HuggingFace, nil once
+    /// the file is on disk and we're just initializing the whisper context.
+    @Published var downloadProgress: DownloadProgress?
 
     let engine = TranscriptionEngine()
     let recorder = AudioRecorder()
@@ -51,6 +54,14 @@ class AppState: ObservableObject {
 
     init() {
         mlog("AppState init")
+        // Restore last-used model (whitelist against known names so an old/typo
+        // value in UserDefaults can't crash loadModel)
+        if let saved = UserDefaults.standard.string(forKey: "activeModel"),
+           ["turbo", "large"].contains(saved) {
+            activeModel = saved
+        }
+        mlog("Active model: \(activeModel)")
+
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
             selectedInputDeviceUID = saved
@@ -64,6 +75,37 @@ class AppState: ObservableObject {
         selectedInputDeviceUID = device.uid
         UserDefaults.standard.set(device.uid, forKey: "inputDeviceUID")
         mlog("Input device changed to: \(device.name) (\(device.uid))")
+    }
+
+    /// Switch active whisper model. Holds `state = .loading` for the full
+    /// duration of download + init so that:
+    ///   - Option+Space is ignored (`case .loading` falls through in toggle()).
+    ///   - Menu items disabled-on-non-idle stay disabled.
+    ///   - Menu shows "Loading model..." instead of the idle hint.
+    /// Without this, a 3GB download could leave the UI in `.idle` while the
+    /// engine was mid-swap, allowing a use-after-free crash.
+    func switchModel(to name: String) async {
+        guard activeModel != name || state == .loading else {
+            // Already on this model and not currently loading — no-op.
+            return
+        }
+        mlog("switchModel: \(activeModel) -> \(name)")
+        activeModel = name
+        UserDefaults.standard.set(name, forKey: "activeModel")
+        state = .loading
+        downloadProgress = nil
+
+        // Download progress arrives from a URLSession delegate queue —
+        // hop to MainActor before touching @Published.
+        await engine.loadModel(name: name) { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
+            }
+        }
+
+        downloadProgress = nil
+        state = .idle
+        mlog("switchModel: done, ready")
     }
 
     func startSetup() {
@@ -115,7 +157,12 @@ class AppState: ObservableObject {
         }
 
         mlog("Loading model...")
-        await engine.loadModel(name: activeModel)
+        await engine.loadModel(name: activeModel) { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
+            }
+        }
+        downloadProgress = nil
         mlog("Model loaded, ready")
         state = .idle
     }
