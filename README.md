@@ -26,12 +26,13 @@
 - **Model choice** — turbo (fast) or large (best quality), with download progress (size, speed, ETA) and persisted across launches
 - **Global hotkey** — Option+Space works in any app, any Space
 - **Multi-monitor aware** — waveform overlay always lands on the screen under your cursor
+- **Pause / Resume** — free 1.5–3 GB of RAM and Metal GPU memory without quitting the app
 - **Smart paste** — saves clipboard, pastes text, restores clipboard
 
 ## Install
 
 ### From DMG
-1. Download `Murmur-3.2.dmg` from [Releases](../../releases)
+1. Download `Murmur-3.3.dmg` from [Releases](../../releases)
 2. Drag `Murmur.app` to `/Applications`
 3. Launch — grant Microphone and Accessibility permissions when prompted
 4. Done! Use **Option+Space** to start

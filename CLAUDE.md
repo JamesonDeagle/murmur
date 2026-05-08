@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Murmur — нативное macOS menubar-приложение для speech-to-text. Работает полностью локально на Apple Silicon через whisper.cpp (C API + Metal GPU). Один .app файл, zero dependencies, drag-to-install.
 
-**Версия:** 3.2 (native Swift)
+**Версия:** 3.3 (native Swift)
 **Платформа:** macOS 14+ (Sonoma), Apple Silicon (M1/M2/M3/M4)
 **Стек:** Swift 6 + SwiftUI + whisper.cpp (static linking) + Metal
 **UI:** Liquid Glass (macOS 26 Tahoe) с fallback на ultraThinMaterial для macOS 14–15
@@ -275,6 +275,7 @@ const char* whisper_full_get_segment_text(whisper_context* ctx, int i_segment);
 - **v3.0** — Native Swift app. Single .app, no dependencies. whisper.cpp C API + Metal GPU.
 - **v3.1** — App icon (1930s cartoon cat). Liquid Glass UI (macOS Tahoe). Orbital transcription loader. Adaptive colors (`Color.primary` — dark/light theme). Input device selector (Microphone menu, defaults to built-in). Accessibility auto-prompt on first launch. Code signing for stable permissions. Thread-safety fixes (AudioRecorder race condition, model switch guard). Cleanup on quit. Auto-install to `/Applications/`.
 - **v3.2** — Multi-monitor fix: waveform overlay centers on the screen with the cursor (was using `NSScreen.main` once at panel creation, drifted on display changes). Use-after-free fix on model switch (`whisper_full` SIGSEGV when Option+Space hit during 3 GB large download — ctx is now nil'd before `whisper_free`, and switching holds `state = .loading` for the entire download+init). Model download progress in menu bar (size, speed, ETA via `URLSessionDownloadDelegate` with EMA-smoothed bytes/sec). Persists last-used model across launches (UserDefaults `activeModel`).
+- **v3.3** — Pause / Resume in the menu: free the whisper context (~1.5–3 GB CPU RAM + Metal GPU buffers) without quitting the app. New `.paused` `RecordingState`; `AppState.pauseModel()` calls `engine.cleanup()`, `resumeModel()` reuses the normal load path so the user gets the same progress UI. Option+Space is a no-op while paused (logged) — picking the active model in the menu also resumes. Model menu and Microphone menu remain enabled in `.paused` so users can switch model directly from a paused state.
 
 ## Debug
 
