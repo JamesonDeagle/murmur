@@ -1,4 +1,6 @@
-# CLAUDE.md — Murmur Native macOS STT App
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
@@ -12,15 +14,24 @@ Murmur — нативное macOS menubar-приложение для speech-to-
 ## Quick Start
 
 ```bash
-# Build + create .app bundle with icon
+# Build + create .app bundle with icon, code-sign, install в /Applications
 ./build-app.sh
 
 # Run
-open Murmur.app
-# or: .build/release/Murmur
+open /Applications/Murmur.app
+# или для отладки со stdout: .build/release/Murmur
+
+# Plain SPM build (без bundle)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
+
+# Tests (SPM target MurmurTests)
+swift test
 ```
 
 **Использование:** Option+Space → говори → Option+Space → текст вставляется в активное поле.
+
+> [!warning] Полный Xcode обязателен (не только CLI tools) — нужен Metal framework. Если стоит не он:
+> `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` или передавай `DEVELOPER_DIR=` каждой команде сборки.
 
 ## Architecture
 
