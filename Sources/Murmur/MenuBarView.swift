@@ -33,6 +33,11 @@ struct MenuBarView: View {
             case .transcribing:
                 Label("Transcribing...", systemImage: "brain")
                     .disabled(true)
+            case .paused:
+                Label("Paused — model unloaded", systemImage: "pause.circle")
+                    .disabled(true)
+                Text("Tap Resume to reload \(appState.activeModel)")
+                    .disabled(true)
             }
 
             Divider()
@@ -47,7 +52,7 @@ struct MenuBarView: View {
                         Text("turbo (fast)")
                     }
                 }
-                .disabled(appState.state != .idle)
+                .disabled(appState.state != .idle && appState.state != .paused)
                 Button {
                     Task { await appState.switchModel(to: "large") }
                 } label: {
@@ -57,7 +62,7 @@ struct MenuBarView: View {
                         Text("large (best quality)")
                     }
                 }
-                .disabled(appState.state != .idle)
+                .disabled(appState.state != .idle && appState.state != .paused)
             }
 
             Menu("Microphone") {
@@ -72,8 +77,28 @@ struct MenuBarView: View {
                             Text(device.name)
                         }
                     }
-                    .disabled(appState.state != .idle)
+                    .disabled(appState.state != .idle && appState.state != .paused)
                 }
+            }
+
+            Divider()
+
+            // Free / reload whisper context without quitting the app.
+            // Useful when you want the ~1.5–3 GB out of RAM/GPU but don't
+            // want to lose the menubar app + Accessibility permission state.
+            if appState.state == .paused {
+                Button {
+                    Task { await appState.resumeModel() }
+                } label: {
+                    Label("Resume \(appState.activeModel)", systemImage: "play.circle")
+                }
+            } else {
+                Button {
+                    Task { await appState.pauseModel() }
+                } label: {
+                    Label("Pause (free RAM)", systemImage: "pause.circle")
+                }
+                .disabled(appState.state != .idle)
             }
 
             Divider()

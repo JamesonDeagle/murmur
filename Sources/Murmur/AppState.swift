@@ -32,6 +32,7 @@ enum RecordingState {
     case loading
     case recording
     case transcribing
+    case paused          // model intentionally unloaded — free RAM and GPU memory
 }
 
 @MainActor
@@ -85,8 +86,9 @@ class AppState: ObservableObject {
     /// Without this, a 3GB download could leave the UI in `.idle` while the
     /// engine was mid-swap, allowing a use-after-free crash.
     func switchModel(to name: String) async {
-        guard activeModel != name || state == .loading else {
-            // Already on this model and not currently loading — no-op.
+        // Allow re-load if user picks the active model while paused — that's
+        // effectively a resume. Plain idle + same name is a no-op.
+        if activeModel == name && state == .idle {
             return
         }
         mlog("switchModel: \(activeModel) -> \(name)")
@@ -106,6 +108,36 @@ class AppState: ObservableObject {
         downloadProgress = nil
         state = .idle
         mlog("switchModel: done, ready")
+    }
+
+    /// Free the whisper context so the ~1.5 GB (turbo) / ~3 GB (large) model
+    /// stops sitting in CPU RAM and Metal GPU buffers. Hotkey is still
+    /// registered — pressing Option+Space in `.paused` is a no-op (see
+    /// `toggle()`); user must explicitly tap Resume in the menu.
+    func pauseModel() async {
+        guard state == .idle else { return }
+        mlog("pauseModel: unloading whisper context")
+        state = .paused
+        downloadProgress = nil
+        await engine.cleanup()
+        mlog("pauseModel: done — model unloaded")
+    }
+
+    /// Reload the active model after pause. Reuses the normal switching path
+    /// so the user sees the same loading/progress UI.
+    func resumeModel() async {
+        guard state == .paused else { return }
+        mlog("resumeModel: reloading \(activeModel)")
+        state = .loading
+        downloadProgress = nil
+        await engine.loadModel(name: activeModel) { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
+            }
+        }
+        downloadProgress = nil
+        state = .idle
+        mlog("resumeModel: done, ready")
     }
 
     func startSetup() {
@@ -232,6 +264,14 @@ class AppState: ObservableObject {
 
         case .transcribing:
             // Already transcribing, ignore
+            break
+
+        case .paused:
+            // Model intentionally unloaded. Don't auto-resume on hotkey —
+            // resume + record + transcribe would block the hotkey for
+            // 10+ seconds while whisper_init runs, which feels broken.
+            // User taps Resume in the menu first.
+            mlog("Toggle ignored: model paused. Tap Resume in menu first.")
             break
         }
     }
