@@ -13,8 +13,14 @@ class WaveformPanel: ObservableObject {
         case transcribing
     }
 
+    // Размер панели — единый источник истины для create + reposition
+    private let panelWidth: CGFloat = 260
+    private let panelHeight: CGFloat = 140
+    private let bottomMargin: CGFloat = 60
+
     func show() {
         if panel == nil { createPanel() }
+        repositionPanel()           // пересчёт на каждый show — учитывает текущий монитор / Dock
         mode = .recording
         panel?.orderFront(nil)
         isVisible = true
@@ -36,19 +42,11 @@ class WaveformPanel: ObservableObject {
     }
 
     private func createPanel() {
-        guard let screen = NSScreen.main else { return }
-
-        let width: CGFloat = 260
-        let height: CGFloat = 140
-        let bottomMargin: CGFloat = 60
-
-        let x = screen.frame.midX - width / 2
-        let y = screen.frame.minY + bottomMargin
-
-        let frame = NSRect(x: x, y: y, width: width, height: height)
+        // Initial frame nominal — реальная позиция выставится в repositionPanel().
+        let initialFrame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
 
         let panel = NSPanel(
-            contentRect: frame,
+            contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -69,5 +67,31 @@ class WaveformPanel: ObservableObject {
         panel.contentView?.addSubview(hostView)
 
         self.panel = panel
+    }
+
+    /// Центрирует панель по горизонтали на экране с курсором, у нижнего края.
+    /// Пересчитывается на каждом show() — это исправляет «иногда левее, иногда правее»
+    /// при multi-monitor / переключении приложений / отключении внешнего экрана.
+    private func repositionPanel() {
+        guard let panel = panel else { return }
+        guard let screen = screenWithMouse()
+                        ?? NSScreen.main
+                        ?? NSScreen.screens.first else { return }
+
+        let f = screen.visibleFrame   // visibleFrame, а не frame — исключает Dock и menubar
+        let x = f.midX - panelWidth / 2
+        let y = f.minY + bottomMargin
+
+        panel.setFrame(
+            NSRect(x: x, y: y, width: panelWidth, height: panelHeight),
+            display: false
+        )
+    }
+
+    /// Экран, на котором сейчас находится курсор мыши.
+    /// Для menubar-app без key window это надёжнее, чем NSScreen.main.
+    private func screenWithMouse() -> NSScreen? {
+        let p = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) }
     }
 }
