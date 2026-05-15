@@ -90,11 +90,16 @@ enum ProgressDownloader {
             // SwiftUI body re-evaluation, no point firing on every chunk.
             if now.timeIntervalSince(lastEmittedTime) >= 0.2 {
                 lastEmittedTime = now
+                let frac: Double = totalBytesExpectedToWrite > 0
+                    ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+                    : 0
                 let progress = DownloadProgress(
                     modelName: modelName,
                     bytesDownloaded: totalBytesWritten,
                     totalBytes: totalBytesExpectedToWrite,
-                    bytesPerSecond: emaBytesPerSecond
+                    bytesPerSecond: emaBytesPerSecond,
+                    fraction: frac,
+                    phase: "Downloading"
                 )
                 onProgress?(progress)
             }
@@ -119,7 +124,9 @@ enum ProgressDownloader {
                         modelName: modelName,
                         bytesDownloaded: total,
                         totalBytes: total,
-                        bytesPerSecond: emaBytesPerSecond
+                        bytesPerSecond: emaBytesPerSecond,
+                        fraction: 1.0,
+                        phase: "Downloading"
                     ))
                 }
 
