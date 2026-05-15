@@ -16,23 +16,29 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Two speech engines, three models.** Pick in the menu:
-> - **turbo** / **large** — whisper.cpp on Metal GPU. Hardcoded to Russian (whisper 1.8.4 bug, see [Switching languages](#switching-languages)).
-> - **parakeet** *(new in v3.4)* — NVIDIA Parakeet TDT v3 via Core ML on Apple Neural Engine. **25 European languages + Japanese + Chinese, automatic detection.** ~66 MB working memory, ~110× real-time on M-series, leaves your GPU free.
+> **Default engine: Parakeet TDT v3 on Apple Neural Engine.**
+> Multilingual (25 European languages + Japanese + Chinese) with automatic
+> language detection. ~600 MB on disk, ~66 MB working memory, ~110× real-time.
+> Runs on the ANE so your Metal GPU stays free.
+>
+> Two whisper.cpp models (turbo, large) are also available in the **Model**
+> menu — they're optional and useful mostly for Russian-only workflows.
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.4.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.5.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
    - **Accessibility** — needed to type the transcribed text into other apps.
-4. **Wait once** for the model to download (~1.5 GB on first launch).
-   You'll see live progress in the menu:
+4. **Wait once** for **Parakeet** to download (~600 MB) and compile its
+   Core ML models. You'll see live progress in the menu:
    ```
-   ⬇ Loading turbo: 245 MB / 1,53 GB
-   16% · 12,4 MB/s · ETA 1m32s
+   ⬇ Downloading 3/5 parakeet
+   40%
    ```
+   Followed by `Compiling parakeet_encoder` for a few seconds while macOS
+   prepares it for the Apple Neural Engine.
 5. **Done.** Click into any text field, press **Option+Space**, talk, press
    again. Your words appear at the cursor.
 
@@ -168,9 +174,9 @@ remembered across launches.
 
 | Model | Engine | Size on disk | Working memory | Speed | Languages | When to use |
 |---|---|---|---|---|---|---|
-| **turbo** | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Default. Fast enough for messaging, notes, code comments. |
-| **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Best whisper quality. Technical terms, names, mixed-language Russian content. |
-| **parakeet** | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Multilingual. Frees Metal GPU. Lowest memory footprint. |
+| **parakeet** *(default)* | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Default for fresh installs. Multilingual, frees the Metal GPU, lowest memory footprint. |
+| **turbo** | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Optional. Russian-only workflows that benefit from whisper's Russian model. |
+| **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Optional. Best whisper quality on hard Russian audio (accents, technical terms, noise). |
 
 Storage:
 - whisper models: `~/Library/Application Support/Murmur/models/` (downloaded
