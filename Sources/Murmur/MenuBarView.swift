@@ -3,23 +3,38 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
 
+    /// State combinations where editing settings (model / mic / pause) is safe.
+    private var canEditSettings: Bool {
+        appState.state == .idle || appState.state == .paused
+    }
+
     var body: some View {
         Group {
             switch appState.state {
             case .loading:
-                if let p = appState.downloadProgress, p.totalBytes > 0 {
-                    // Downloading — show two lines: size+speed, fraction+ETA
-                    Label(
-                        "Loading \(p.modelName): \(formatBytes(p.bytesDownloaded)) / \(formatBytes(p.totalBytes))",
-                        systemImage: "arrow.down.circle"
-                    )
-                    .disabled(true)
-                    Text("\(Int(p.fraction * 100))% · \(formatSpeed(p.bytesPerSecond))\(formatETA(p.etaSeconds))")
+                if let p = appState.downloadProgress {
+                    if p.hasByteCount {
+                        // Whisper-style: exact bytes + smoothed MB/s + ETA.
+                        Label(
+                            "Loading \(p.modelName): \(formatBytes(p.bytesDownloaded)) / \(formatBytes(p.totalBytes))",
+                            systemImage: "arrow.down.circle"
+                        )
                         .disabled(true)
+                        Text("\(p.fractionPercent)% · \(formatSpeed(p.bytesPerSecond))\(formatETA(p.etaSeconds))")
+                            .disabled(true)
+                    } else {
+                        // Parakeet/FluidAudio: fraction + phase only (no byte counts).
+                        Label(
+                            "\(p.phase) \(p.modelName)",
+                            systemImage: "arrow.down.circle"
+                        )
+                        .disabled(true)
+                        Text("\(p.fractionPercent)%")
+                            .disabled(true)
+                    }
                 } else {
-                    // Either initializing the whisper context (post-download)
-                    // or download just started and we don't have totals yet.
-                    Label("Loading model...", systemImage: "hourglass")
+                    // Pre-progress (engine init / warmup) or post-progress (about to flip to idle).
+                    Label("Loading \(appState.activeModel.shortName)...", systemImage: "hourglass")
                         .disabled(true)
                 }
             case .idle:
@@ -36,33 +51,25 @@ struct MenuBarView: View {
             case .paused:
                 Label("Paused — model unloaded", systemImage: "pause.circle")
                     .disabled(true)
-                Text("Tap Resume to reload \(appState.activeModel)")
+                Text("Tap Resume to reload \(appState.activeModel.shortName)")
                     .disabled(true)
             }
 
             Divider()
 
             Menu("Model") {
-                Button {
-                    Task { await appState.switchModel(to: "turbo") }
-                } label: {
-                    if appState.activeModel == "turbo" {
-                        Label("turbo (fast)", systemImage: "checkmark")
-                    } else {
-                        Text("turbo (fast)")
+                ForEach(SpeechModelOption.allCases) { option in
+                    Button {
+                        Task { await appState.switchModel(to: option) }
+                    } label: {
+                        if appState.activeModel == option {
+                            Label(option.menuLabel, systemImage: "checkmark")
+                        } else {
+                            Text(option.menuLabel)
+                        }
                     }
+                    .disabled(!canEditSettings)
                 }
-                .disabled(appState.state != .idle && appState.state != .paused)
-                Button {
-                    Task { await appState.switchModel(to: "large") }
-                } label: {
-                    if appState.activeModel == "large" {
-                        Label("large (best quality)", systemImage: "checkmark")
-                    } else {
-                        Text("large (best quality)")
-                    }
-                }
-                .disabled(appState.state != .idle && appState.state != .paused)
             }
 
             Menu("Microphone") {
@@ -77,20 +84,20 @@ struct MenuBarView: View {
                             Text(device.name)
                         }
                     }
-                    .disabled(appState.state != .idle && appState.state != .paused)
+                    .disabled(!canEditSettings)
                 }
             }
 
             Divider()
 
-            // Free / reload whisper context without quitting the app.
-            // Useful when you want the ~1.5–3 GB out of RAM/GPU but don't
+            // Free / reload model context without quitting the app.
+            // Useful when you want the ~600 MB–3 GB out of RAM/ANE/GPU but don't
             // want to lose the menubar app + Accessibility permission state.
             if appState.state == .paused {
                 Button {
                     Task { await appState.resumeModel() }
                 } label: {
-                    Label("Resume \(appState.activeModel)", systemImage: "play.circle")
+                    Label("Resume \(appState.activeModel.shortName)", systemImage: "play.circle")
                 }
             } else {
                 Button {
@@ -105,7 +112,7 @@ struct MenuBarView: View {
 
             Button("Quit Murmur") {
                 HotkeyManager.shared.unregister()
-                Task { await appState.engine.cleanup() }
+                Task { await appState.engine?.cleanup() }
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

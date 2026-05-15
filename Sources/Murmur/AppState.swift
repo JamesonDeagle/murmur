@@ -40,13 +40,21 @@ class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var state: RecordingState = .loading
-    @Published var activeModel: String = "turbo"
+    @Published var activeModel: SpeechModelOption = .whisperTurbo
     @Published var selectedInputDeviceUID: String = ""
-    /// Set while a model file is being downloaded from HuggingFace, nil once
-    /// the file is on disk and we're just initializing the whisper context.
+    /// Set while a model file is being downloaded / compiled, nil once
+    /// the model is loaded and ready to transcribe.
     @Published var downloadProgress: DownloadProgress?
 
-    let engine = TranscriptionEngine()
+    /// Current speech engine. Swapped out when the user switches between a
+    /// whisper variant and Parakeet — both wrap heavy native resources
+    /// (Metal context vs. ANE-resident Core ML models) and can't coexist
+    /// usefully in this menubar app's memory budget.
+    var engine: (any SpeechEngine)?
+    /// Tracks which backend the current `engine` is so we know when to
+    /// rebuild on switch.
+    private var currentEngineKind: EngineKind?
+
     let recorder = AudioRecorder()
     let waveform = WaveformPanel()
     private var recordingStartTime: Date?
@@ -55,13 +63,14 @@ class AppState: ObservableObject {
 
     init() {
         mlog("AppState init")
-        // Restore last-used model (whitelist against known names so an old/typo
-        // value in UserDefaults can't crash loadModel)
+        // Restore last-used model. Old builds (≤ v3.3) stored "turbo" / "large"
+        // — same raw values as the new SpeechModelOption enum, so they migrate
+        // for free. Anything we don't recognize falls back to turbo.
         if let saved = UserDefaults.standard.string(forKey: "activeModel"),
-           ["turbo", "large"].contains(saved) {
-            activeModel = saved
+           let restored = SpeechModelOption(rawValue: saved) {
+            activeModel = restored
         }
-        mlog("Active model: \(activeModel)")
+        mlog("Active model: \(activeModel.rawValue)")
 
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
@@ -72,69 +81,82 @@ class AppState: ObservableObject {
         mlog("Input device UID: \(selectedInputDeviceUID)")
     }
 
+    /// Ensure `engine` matches the requested backend; swap actors if not.
+    /// Old engine's `cleanup()` is awaited so we don't leak its model into
+    /// memory next to the new one.
+    private func prepareEngine(for kind: EngineKind) async {
+        if currentEngineKind == kind, engine != nil { return }
+        if let old = engine {
+            await old.cleanup()
+        }
+        engine = kind.makeEngine()
+        currentEngineKind = kind
+        mlog("prepareEngine: now using \(kind)")
+    }
+
+    private func progressForwarder() -> @Sendable (DownloadProgress) -> Void {
+        return { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
+            }
+        }
+    }
+
     func selectInputDevice(_ device: AudioInputDevice) {
         selectedInputDeviceUID = device.uid
         UserDefaults.standard.set(device.uid, forKey: "inputDeviceUID")
         mlog("Input device changed to: \(device.name) (\(device.uid))")
     }
 
-    /// Switch active whisper model. Holds `state = .loading` for the full
-    /// duration of download + init so that:
-    ///   - Option+Space is ignored (`case .loading` falls through in toggle()).
+    /// Switch active model. Handles both same-engine variant changes
+    /// (turbo↔large within WhisperEngine) and cross-engine switches
+    /// (whisper↔parakeet), the latter destroys the old engine actor.
+    /// Holds `state = .loading` for the full duration so:
+    ///   - Option+Space is ignored (`case .loading` in toggle()).
     ///   - Menu items disabled-on-non-idle stay disabled.
-    ///   - Menu shows "Loading model..." instead of the idle hint.
-    /// Without this, a 3GB download could leave the UI in `.idle` while the
-    /// engine was mid-swap, allowing a use-after-free crash.
-    func switchModel(to name: String) async {
+    ///   - Menu shows progress lines instead of the idle hint.
+    func switchModel(to option: SpeechModelOption) async {
         // Allow re-load if user picks the active model while paused — that's
-        // effectively a resume. Plain idle + same name is a no-op.
-        if activeModel == name && state == .idle {
+        // effectively a resume. Plain idle + same option is a no-op.
+        if activeModel == option && state == .idle && engine != nil {
             return
         }
-        mlog("switchModel: \(activeModel) -> \(name)")
-        activeModel = name
-        UserDefaults.standard.set(name, forKey: "activeModel")
+        mlog("switchModel: \(activeModel.rawValue) -> \(option.rawValue)")
+        activeModel = option
+        UserDefaults.standard.set(option.rawValue, forKey: "activeModel")
         state = .loading
         downloadProgress = nil
 
-        // Download progress arrives from a URLSession delegate queue —
-        // hop to MainActor before touching @Published.
-        await engine.loadModel(name: name) { [weak self] progress in
-            Task { @MainActor in
-                self?.downloadProgress = progress
-            }
-        }
+        await prepareEngine(for: option.engineKind)
+        await engine?.loadModel(name: option.engineModelName, onProgress: progressForwarder())
 
         downloadProgress = nil
         state = .idle
         mlog("switchModel: done, ready")
     }
 
-    /// Free the whisper context so the ~1.5 GB (turbo) / ~3 GB (large) model
-    /// stops sitting in CPU RAM and Metal GPU buffers. Hotkey is still
-    /// registered — pressing Option+Space in `.paused` is a no-op (see
-    /// `toggle()`); user must explicitly tap Resume in the menu.
+    /// Free the active model context so the ~600 MB–3 GB stops sitting in
+    /// CPU RAM and ANE/GPU buffers. Hotkey is still registered — pressing
+    /// Option+Space in `.paused` is a no-op (see `toggle()`); user must
+    /// explicitly tap Resume in the menu.
     func pauseModel() async {
         guard state == .idle else { return }
-        mlog("pauseModel: unloading whisper context")
+        mlog("pauseModel: unloading \(activeModel.rawValue)")
         state = .paused
         downloadProgress = nil
-        await engine.cleanup()
+        await engine?.cleanup()
         mlog("pauseModel: done — model unloaded")
     }
 
-    /// Reload the active model after pause. Reuses the normal switching path
-    /// so the user sees the same loading/progress UI.
+    /// Reload the active model after pause. Reuses the same load path so
+    /// the user sees the same progress UI.
     func resumeModel() async {
         guard state == .paused else { return }
-        mlog("resumeModel: reloading \(activeModel)")
+        mlog("resumeModel: reloading \(activeModel.rawValue)")
         state = .loading
         downloadProgress = nil
-        await engine.loadModel(name: activeModel) { [weak self] progress in
-            Task { @MainActor in
-                self?.downloadProgress = progress
-            }
-        }
+        await prepareEngine(for: activeModel.engineKind)
+        await engine?.loadModel(name: activeModel.engineModelName, onProgress: progressForwarder())
         downloadProgress = nil
         state = .idle
         mlog("resumeModel: done, ready")
@@ -188,12 +210,9 @@ class AppState: ObservableObject {
             return event
         }
 
-        mlog("Loading model...")
-        await engine.loadModel(name: activeModel) { [weak self] progress in
-            Task { @MainActor in
-                self?.downloadProgress = progress
-            }
-        }
+        mlog("Loading model: \(activeModel.rawValue)")
+        await prepareEngine(for: activeModel.engineKind)
+        await engine?.loadModel(name: activeModel.engineModelName, onProgress: progressForwarder())
         downloadProgress = nil
         mlog("Model loaded, ready")
         state = .idle
@@ -248,7 +267,7 @@ class AppState: ObservableObject {
             }
 
             mlog("Transcribing...")
-            if let text = await engine.transcribe(audio: audio), !text.isEmpty {
+            if let text = await engine?.transcribe(audio: audio), !text.isEmpty {
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
                 TextPaster.paste(text)

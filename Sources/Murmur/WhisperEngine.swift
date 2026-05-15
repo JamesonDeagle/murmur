@@ -1,27 +1,13 @@
 import Foundation
 import CWhisper
 
-/// Snapshot of an in-flight model download. Updated several times per second
-/// while a model file is being fetched from HuggingFace.
-struct DownloadProgress: Sendable, Equatable {
-    let modelName: String
-    let bytesDownloaded: Int64
-    let totalBytes: Int64           // -1 if unknown (server didn't send Content-Length)
-    let bytesPerSecond: Double      // smoothed (EMA)
-
-    var fraction: Double {
-        guard totalBytes > 0 else { return 0 }
-        return min(1.0, max(0.0, Double(bytesDownloaded) / Double(totalBytes)))
-    }
-
-    var etaSeconds: Double? {
-        guard totalBytes > 0, bytesPerSecond > 0 else { return nil }
-        let remaining = max(0, totalBytes - bytesDownloaded)
-        return Double(remaining) / bytesPerSecond
-    }
-}
-
-actor TranscriptionEngine {
+/// whisper.cpp-backed speech engine. Handles both turbo and large variants
+/// — the variant is chosen via the `name` parameter to `loadModel`.
+///
+/// Renamed from `TranscriptionEngine` in v3.4 when Parakeet was added as a
+/// second backend. The `SpeechEngine` protocol now lives in SpeechEngine.swift
+/// along with the shared `DownloadProgress` struct.
+actor WhisperEngine: SpeechEngine {
     private var ctx: OpaquePointer?
     private let modelsDir: URL
 
@@ -40,7 +26,7 @@ actor TranscriptionEngine {
         name: String,
         onProgress: (@Sendable (DownloadProgress) -> Void)? = nil
     ) async {
-        mlog("loadModel: \(name)")
+        mlog("WhisperEngine.loadModel: \(name)")
 
         // CRITICAL: nil out BEFORE free so any concurrent transcribe() call
         // suspended on this actor's queue sees nil instead of a dangling pointer.
@@ -53,18 +39,18 @@ actor TranscriptionEngine {
         }
 
         guard let filename = models[name] else {
-            mlog("loadModel: unknown model name '\(name)'")
+            mlog("WhisperEngine.loadModel: unknown model name '\(name)'")
             return
         }
         let modelPath = modelsDir.appendingPathComponent(filename)
 
         // Download model if not present (large is ~3GB — can take minutes)
         if !FileManager.default.fileExists(atPath: modelPath.path) {
-            mlog("loadModel: downloading '\(name)' to \(modelPath.path)")
+            mlog("WhisperEngine.loadModel: downloading '\(name)' to \(modelPath.path)")
             await downloadModel(name: name, to: modelPath, onProgress: onProgress)
             // Verify download succeeded — partial/failed download leaves no file
             guard FileManager.default.fileExists(atPath: modelPath.path) else {
-                mlog("loadModel: download failed, no model file at \(modelPath.path)")
+                mlog("WhisperEngine.loadModel: download failed, no model file at \(modelPath.path)")
                 return
             }
         }
@@ -81,17 +67,17 @@ actor TranscriptionEngine {
         if ctx != nil {
             let silence = [Float](repeating: 0, count: 16000)
             _ = transcribeRaw(samples: silence)
-            print("Model '\(name)' loaded and warmed up")
+            print("Whisper model '\(name)' loaded and warmed up")
         }
     }
 
-    func transcribe(audio: [Float]) -> String? {
+    func transcribe(audio: [Float]) async -> String? {
         guard !audio.isEmpty else { return nil }
 
         // Check audio levels
         let maxVal = audio.map { abs($0) }.max() ?? 0
         let rms = sqrt(audio.map { $0 * $0 }.reduce(0, +) / Float(audio.count))
-        mlog("Transcribe: \(audio.count) samples, max=\(maxVal), rms=\(rms)")
+        mlog("WhisperEngine.transcribe: \(audio.count) samples, max=\(maxVal), rms=\(rms)")
 
         return transcribeRaw(samples: audio)
     }
@@ -161,13 +147,13 @@ actor TranscriptionEngine {
             // Make sure target directory exists, then move into place
             try? FileManager.default.removeItem(at: localPath)
             try FileManager.default.moveItem(at: tempURL, to: localPath)
-            mlog("Model downloaded: \(localPath.path)")
+            mlog("Whisper model downloaded: \(localPath.path)")
         } catch {
-            mlog("Failed to download model: \(error)")
+            mlog("Failed to download whisper model: \(error)")
         }
     }
 
-    func cleanup() {
+    func cleanup() async {
         if let ctx = ctx {
             whisper_free(ctx)
             self.ctx = nil
