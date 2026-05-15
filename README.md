@@ -16,14 +16,13 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Heads up — Russian language by default.** whisper.cpp 1.8.4 has a bug in
-> automatic language detection (it returns zero text), so Murmur is hardcoded
-> to Russian out of the box. To use English or another language, see
-> [Switching languages](#switching-languages) below — it's a one-line change.
+> **Two speech engines, three models.** Pick in the menu:
+> - **turbo** / **large** — whisper.cpp on Metal GPU. Hardcoded to Russian (whisper 1.8.4 bug, see [Switching languages](#switching-languages)).
+> - **parakeet** *(new in v3.4)* — NVIDIA Parakeet TDT v3 via Core ML on Apple Neural Engine. **25 European languages + Japanese + Chinese, automatic detection.** ~66 MB working memory, ~110× real-time on M-series, leaves your GPU free.
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.3.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.4.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -107,26 +106,38 @@ Click the Murmur icon → **Pause (free RAM)** to unload the model. The whisper
 context is freed (`whisper_free`) — both CPU RAM and Metal GPU buffers go back
 to the OS. Click **Resume** to reload (a few seconds for warmup, no re-download).
 
-| Model | RAM (approx) |
-|---|---|
-| turbo | ~1.5 GB |
-| large | ~3 GB |
+| Model | RAM (approx) | Where it runs |
+|---|---|---|
+| turbo | ~1.5 GB | CPU + Metal GPU |
+| large | ~3 GB | CPU + Metal GPU |
+| parakeet | ~66 MB | Apple Neural Engine (ANE) |
+
+Parakeet is ~25× lighter on memory because Core ML keeps it resident on the
+ANE instead of the GPU — pause is rarely needed if you stick with Parakeet.
 
 ### I want better transcription quality
 
-Click the Murmur icon → **Model → large**. ~3 GB on disk and in memory,
-slightly slower (3–5 s vs 1–2 s), better accuracy on technical terms, names,
-and mixed-language content. Persists across launches.
+- **Russian audio**: try **large** (whisper). Bigger model, ~3 GB on disk,
+  3–5 s per phrase, better on accents, names, mixed-language content.
+- **Other languages** (English, French, German, …): switch to **parakeet** —
+  it auto-detects the language and was trained on multilingual data.
+
+Set in: menu → **Model**. Persists across launches.
 
 ### Switching languages
 
-Murmur is hardcoded to Russian to work around a whisper.cpp bug. To switch:
+- **Use parakeet** (recommended): switch in menu → **Model → parakeet**. It
+  auto-detects across 25 European languages + Japanese + Chinese — no code
+  change needed.
+- **Or, stick with whisper but change the hardcoded language**:
+  1. Open `Sources/Murmur/WhisperEngine.swift`.
+  2. Find `let langStr = strdup("ru")` near the bottom of `transcribeRaw`.
+  3. Change `"ru"` to `"en"`, `"de"`, `"es"`, etc. (any [whisper.cpp language
+     code](https://github.com/ggerganov/whisper.cpp/blob/master/src/whisper.cpp)).
+  4. Rebuild: `./build-app.sh`.
 
-1. Open `Sources/Murmur/TranscriptionEngine.swift`.
-2. Find `let langStr = strdup("ru")` near the bottom of `transcribeRaw`.
-3. Change `"ru"` to `"en"`, `"de"`, `"es"`, etc. (any [whisper.cpp language
-   code](https://github.com/ggerganov/whisper.cpp/blob/master/src/whisper.cpp)).
-4. Rebuild: `./build-app.sh`.
+  Why hardcode? whisper.cpp 1.8.4 has a bug in automatic language detection
+  that returns zero text. Parakeet has its own detector that works.
 
 You can also adjust `params.initial_prompt` to bias whisper toward your style
 of punctuation and vocabulary.
@@ -152,16 +163,20 @@ back ON in System Settings — no reinstall needed.
 
 ## Models
 
-Downloaded automatically on first launch from
-[ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp).
-
-| Model | Size | Speed | Quality | When to use |
-|---|---|---|---|---|
-| **turbo** | ~1.5 GB | 1–2 s | Good | Default. Fast enough for messaging, notes, quick code comments. |
-| **large** | ~3 GB | 3–5 s | Best | When you need accuracy on technical terms, proper nouns, mixed languages, or quiet/noisy audio. |
-
-Stored in `~/Library/Application Support/Murmur/models/`. Last-used model is
+All models download automatically on first selection. Last-used model is
 remembered across launches.
+
+| Model | Engine | Size on disk | Working memory | Speed | Languages | When to use |
+|---|---|---|---|---|---|---|
+| **turbo** | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Default. Fast enough for messaging, notes, code comments. |
+| **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Best whisper quality. Technical terms, names, mixed-language Russian content. |
+| **parakeet** | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Multilingual. Frees Metal GPU. Lowest memory footprint. |
+
+Storage:
+- whisper models: `~/Library/Application Support/Murmur/models/` (downloaded
+  from [ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp))
+- parakeet: FluidAudio cache (downloaded from
+  [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml))
 
 ---
 
@@ -202,21 +217,28 @@ Option+Space → AppState.toggle()
   → ... user speaks ...
 Option+Space → AudioRecorder.stop()
   → resample 44.1 k → 16 k, normalize peak to 0.9
-  → TranscriptionEngine.transcribe() [whisper.cpp + Metal GPU]
+  → (any SpeechEngine).transcribe() ─┬─ WhisperEngine  [whisper.cpp + Metal GPU]
+                                     └─ ParakeetEngine [FluidAudio + Core ML + ANE]
   → TextPaster.paste()               [NSPasteboard + simulated Cmd+V]
                                      [restores clipboard after 0.5 s]
 ```
 
 | Component | Role | Threading |
 |---|---|---|
-| `AppState` | State machine, orchestration | `@MainActor` |
+| `AppState` | State machine, orchestration, engine swapping | `@MainActor` |
 | `AudioRecorder` | AVAudioEngine capture, resample, normalize | Audio thread + `NSLock` |
-| `TranscriptionEngine` | whisper.cpp C API wrapper | Swift `actor` |
+| `SpeechEngine` (protocol) | `loadModel` / `transcribe` / `cleanup` contract | — |
+| `WhisperEngine` | whisper.cpp C API wrapper (turbo / large) | Swift `actor` |
+| `ParakeetEngine` | FluidAudio wrapper for Parakeet TDT v3 on ANE | Swift `actor` |
 | `HotkeyManager` | Carbon `RegisterEventHotKey` (Option+Space) | Event thread |
 | `TextPaster` | `NSPasteboard` + `CGEvent` Cmd+V | `@MainActor` |
 | `InputDeviceManager` | CoreAudio input device enumeration | — |
 | `WaveformView` / `WaveformOverlay` | Liquid Glass UI + `NSPanel` | `@MainActor` |
-| `ProgressDownloader` | `URLSessionDownloadDelegate`, EMA-smoothed speed | Delegate queue |
+| `ProgressDownloader` | `URLSessionDownloadDelegate`, EMA-smoothed speed (whisper only) | Delegate queue |
+
+`AppState.engine: (any SpeechEngine)?` is swapped when the user crosses
+engine boundaries (whisper ↔ parakeet). Same-engine variant changes
+(turbo ↔ large) reuse the existing `WhisperEngine` actor.
 
 State machine:
 
@@ -259,9 +281,10 @@ open /Applications/Murmur.app
 
 ### Known technical limitations
 
-- **Language hardcoded** — `detect_language=true` + `language="auto"` produces
-  zero segments in whisper.cpp 1.8.4. Murmur sets `language="ru"` explicitly.
-  Switch in `TranscriptionEngine.swift::transcribeRaw`.
+- **Whisper language hardcoded** — `detect_language=true` + `language="auto"`
+  produces zero segments in whisper.cpp 1.8.4. `WhisperEngine` sets
+  `language="ru"` explicitly. Switch in `WhisperEngine.swift::transcribeRaw`,
+  or simply use Parakeet which has working auto-detection.
 - **Apple Silicon only** — Intel Macs are not supported because the build links
   against Metal-accelerated ggml backends.
 - **First-launch download is large** — turbo is 1.5 GB, large is 3 GB. You'll

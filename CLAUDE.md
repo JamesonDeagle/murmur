@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Murmur — нативное macOS menubar-приложение для speech-to-text. Работает полностью локально на Apple Silicon через whisper.cpp (C API + Metal GPU). Один .app файл, zero dependencies, drag-to-install.
 
-**Версия:** 3.3 (native Swift)
+**Версия:** 3.4 (native Swift)
 **Платформа:** macOS 14+ (Sonoma), Apple Silicon (M1/M2/M3/M4)
-**Стек:** Swift 6 + SwiftUI + whisper.cpp (static linking) + Metal
+**Стек:** Swift 6 + SwiftUI + whisper.cpp (static linking) + Metal + FluidAudio (Parakeet Core ML / ANE)
 **UI:** Liquid Glass (macOS 26 Tahoe) с fallback на ultraThinMaterial для macOS 14–15
 
 ## Quick Start
@@ -276,6 +276,7 @@ const char* whisper_full_get_segment_text(whisper_context* ctx, int i_segment);
 - **v3.1** — App icon (1930s cartoon cat). Liquid Glass UI (macOS Tahoe). Orbital transcription loader. Adaptive colors (`Color.primary` — dark/light theme). Input device selector (Microphone menu, defaults to built-in). Accessibility auto-prompt on first launch. Code signing for stable permissions. Thread-safety fixes (AudioRecorder race condition, model switch guard). Cleanup on quit. Auto-install to `/Applications/`.
 - **v3.2** — Multi-monitor fix: waveform overlay centers on the screen with the cursor (was using `NSScreen.main` once at panel creation, drifted on display changes). Use-after-free fix on model switch (`whisper_full` SIGSEGV when Option+Space hit during 3 GB large download — ctx is now nil'd before `whisper_free`, and switching holds `state = .loading` for the entire download+init). Model download progress in menu bar (size, speed, ETA via `URLSessionDownloadDelegate` with EMA-smoothed bytes/sec). Persists last-used model across launches (UserDefaults `activeModel`).
 - **v3.3** — Pause / Resume in the menu: free the whisper context (~1.5–3 GB CPU RAM + Metal GPU buffers) without quitting the app. New `.paused` `RecordingState`; `AppState.pauseModel()` calls `engine.cleanup()`, `resumeModel()` reuses the normal load path so the user gets the same progress UI. Option+Space is a no-op while paused (logged) — picking the active model in the menu also resumes. Model menu and Microphone menu remain enabled in `.paused` so users can switch model directly from a paused state.
+- **v3.4** — Parakeet TDT v3 as a third speech engine, alongside whisper turbo/large. FluidAudio SPM dependency (0.14.5+) wraps the Core ML port — runs on Apple Neural Engine (ANE), ~66 MB working memory vs whisper's 1.5–3 GB, ~110× RTF on M-series, leaves Metal GPU free. Critically: 25 European languages + JP + ZH with **automatic language detection** built in, sidestepping the whisper.cpp 1.8.4 `detect_language` bug that forced Murmur to hardcode `language="ru"`. Architecture: new `SpeechEngine` protocol in `SpeechEngine.swift`; `TranscriptionEngine.swift` renamed to `WhisperEngine.swift`; new `ParakeetEngine.swift`. `AppState.engine` is now `(any SpeechEngine)?` and `currentEngineKind` tracks which actor type is live so cross-engine switches (whisper↔parakeet) destroy the old one. `SpeechModelOption` enum (turbo / large / parakeet) drives the Model menu; UserDefaults raw values match old strings ("turbo", "large") so v3.3 settings migrate cleanly. `DownloadProgress` extended with `fraction` + `phase` (FluidAudio emits fraction + phase enum, no byte counts — UI falls back to "Downloading 2/5  40%" instead of MB/s+ETA for Parakeet).
 
 ## Debug
 
