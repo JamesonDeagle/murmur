@@ -40,7 +40,10 @@ class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var state: RecordingState = .loading
-    @Published var activeModel: SpeechModelOption = .whisperTurbo
+    /// Default for fresh installs is Parakeet — runs on Apple Neural Engine,
+    /// multilingual with auto-detection, ~25× lighter than whisper. Existing
+    /// users keep whatever they picked previously via UserDefaults restore in init().
+    @Published var activeModel: SpeechModelOption = .parakeetV3
     @Published var selectedInputDeviceUID: String = ""
     /// Set while a model file is being downloaded / compiled, nil once
     /// the model is loaded and ready to transcribe.

@@ -59,14 +59,21 @@ struct DownloadProgress: Sendable, Equatable {
 
 /// What the user picks in the Model menu. Each option knows which engine to
 /// instantiate and which variant name to pass into `loadModel`.
+///
+/// Declaration order matters: `allCases` is what populates the Model menu,
+/// and `parakeetV3` is the **default model for new installs** (see
+/// `AppState.activeModel`). Parakeet runs on the ANE, takes ~25× less RAM
+/// than whisper, and auto-detects 25 EU + JP + ZH languages — for the vast
+/// majority of users it's the right pick.
 enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
-    /// whisper-large-v3-turbo via whisper.cpp + Metal — fastest, ~1.5 GB, Russian-only by default.
+    /// Parakeet TDT v3 via Core ML on Apple Neural Engine — multilingual (25 EU langs + JP/ZH),
+    /// auto language detection, ~600 MB on disk, ~66 MB working memory, ~110× RTF on M-series.
+    /// **Default for new installs.**
+    case parakeetV3 = "parakeet"
+    /// whisper-large-v3-turbo via whisper.cpp + Metal — fast, ~1.5 GB, Russian-only by default.
     case whisperTurbo = "turbo"
     /// whisper-large-v3 via whisper.cpp + Metal — best whisper quality, ~3 GB, Russian-only by default.
     case whisperLarge = "large"
-    /// Parakeet TDT v3 via Core ML on Apple Neural Engine — multilingual (25 EU langs + JP/ZH),
-    /// auto language detection, ~600 MB on disk, ~66 MB working memory, ~110× RTF on M-series.
-    case parakeetV3 = "parakeet"
 
     var id: String { rawValue }
 
@@ -91,9 +98,9 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// Label shown in the menu next to the radio checkmark.
     var menuLabel: String {
         switch self {
+        case .parakeetV3:   return "parakeet  ·  ANE, multilingual, ~600 MB  (recommended)"
         case .whisperTurbo: return "turbo  ·  whisper, ~1.5 GB, Russian"
         case .whisperLarge: return "large  ·  whisper, ~3 GB, Russian"
-        case .parakeetV3:   return "parakeet  ·  Core ML / ANE, multilingual, ~600 MB"
         }
     }
 
