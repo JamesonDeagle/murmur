@@ -70,6 +70,10 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// auto language detection, ~600 MB on disk, ~66 MB working memory, ~110× RTF on M-series.
     /// **Default for new installs.**
     case parakeetV3 = "parakeet"
+    /// whisper-large-v3-turbo via WhisperKit (Argmax) on Core ML / Apple Neural Engine — whisper
+    /// quality with ANE residency. ~626 MB, ~42× RTF on M-series ANE-only. Working
+    /// language auto-detection (unlike whisper.cpp 1.8.4). Best of both worlds.
+    case whisperKitTurbo = "whisper-ane"
     /// whisper-large-v3-turbo via whisper.cpp + Metal — fast, ~1.5 GB, Russian-only by default.
     case whisperTurbo = "turbo"
     /// whisper-large-v3 via whisper.cpp + Metal — best whisper quality, ~3 GB, Russian-only by default.
@@ -80,51 +84,59 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     var engineKind: EngineKind {
         switch self {
         case .whisperTurbo, .whisperLarge: return .whisper
-        case .parakeetV3: return .parakeet
+        case .parakeetV3:    return .parakeet
+        case .whisperKitTurbo: return .whisperKit
         }
     }
 
     /// String passed into `SpeechEngine.loadModel(name:)`. For whisper variants
-    /// this picks the .bin file; for Parakeet it's informational only (v3 is the
-    /// only variant the engine knows about).
+    /// this picks the .bin file; for Parakeet and WhisperKit it's informational
+    /// (single-variant for now).
     var engineModelName: String {
         switch self {
         case .whisperTurbo: return "turbo"
         case .whisperLarge: return "large"
         case .parakeetV3:   return "parakeet"
+        case .whisperKitTurbo: return "whisper-ane"
         }
     }
 
     /// Label shown in the menu next to the radio checkmark.
     var menuLabel: String {
         switch self {
-        case .parakeetV3:   return "parakeet  ·  ANE, multilingual, ~600 MB  (recommended)"
-        case .whisperTurbo: return "turbo  ·  whisper, ~1.5 GB, Russian"
-        case .whisperLarge: return "large  ·  whisper, ~3 GB, Russian"
+        case .parakeetV3:      return "parakeet  ·  ANE, multilingual, ~600 MB  (recommended)"
+        case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3 on ANE, ~626 MB, multilingual"
+        case .whisperTurbo:    return "turbo  ·  whisper.cpp + Metal, ~1.5 GB, Russian"
+        case .whisperLarge:    return "large  ·  whisper.cpp + Metal, ~3 GB, Russian"
         }
     }
 
     /// Used in the menubar status line ("Loading turbo…", "Resume parakeet").
     var shortName: String {
         switch self {
-        case .whisperTurbo: return "turbo"
-        case .whisperLarge: return "large"
-        case .parakeetV3:   return "parakeet"
+        case .whisperTurbo:    return "turbo"
+        case .whisperLarge:    return "large"
+        case .parakeetV3:      return "parakeet"
+        case .whisperKitTurbo: return "whisper-ane"
         }
     }
 }
 
 /// Backend identifier — used to decide whether a model switch reuses the
-/// current engine actor or replaces it (whisper context ≠ parakeet context).
+/// current engine actor or replaces it. Each kind owns heavy native state
+/// (whisper.cpp context, Core ML model bundles, ANE residency) that doesn't
+/// coexist gracefully.
 enum EngineKind: Sendable {
-    case whisper
-    case parakeet
+    case whisper      // whisper.cpp + Metal GPU
+    case parakeet     // FluidAudio + Core ML + ANE
+    case whisperKit   // Argmax WhisperKit + Core ML + ANE
 
     @MainActor
     func makeEngine() -> any SpeechEngine {
         switch self {
-        case .whisper:  return WhisperEngine()
-        case .parakeet: return ParakeetEngine()
+        case .whisper:     return WhisperEngine()
+        case .parakeet:    return ParakeetEngine()
+        case .whisperKit:  return WhisperKitEngine()
         }
     }
 }

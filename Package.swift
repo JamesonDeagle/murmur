@@ -9,6 +9,10 @@ let package = Package(
         // Multilingual (25 European languages + Japanese + Chinese) with built-in
         // language detection — frees us from the whisper.cpp Russian-hardcode workaround.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+        // WhisperKit — whisper-large-v3 etc. compiled to CoreML, running on ANE.
+        // Same whisper quality as our whisper.cpp+Metal path but ~2× faster
+        // and shares the ANE with Parakeet so no GPU pressure.
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
     ],
     targets: [
         .systemLibrary(
@@ -20,6 +24,7 @@ let package = Package(
             dependencies: [
                 "CWhisper",
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             path: "Sources/Murmur",
             linkerSettings: [
