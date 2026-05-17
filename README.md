@@ -16,17 +16,14 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Default engine: Parakeet TDT v3 on Apple Neural Engine.**
-> Multilingual (25 European languages + Japanese + Chinese) with automatic
-> language detection. ~600 MB on disk, ~66 MB working memory, ~110× real-time.
-> Runs on the ANE so your Metal GPU stays free.
->
-> Two whisper.cpp models (turbo, large) are also available in the **Model**
-> menu — they're optional and useful mostly for Russian-only workflows.
+> **Four speech engines, you pick in the Model menu.**
+> - **parakeet** *(default)* — NVIDIA Parakeet TDT v3 on Apple Neural Engine. 25 EU + JP + ZH with auto-detect. ~600 MB, ~66 MB working memory, ~110× real-time.
+> - **whisper-ane** *(new in v3.6)* — whisper-large-v3-turbo on ANE via Argmax WhisperKit. Whisper quality + ANE speed + working auto-detect. ~626 MB.
+> - **turbo** / **large** — whisper.cpp on Metal GPU. Russian-only (whisper.cpp 1.8.4 detect_language bug). Kept for users who already have them or specifically want the whisper.cpp behavior.
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.5.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.6.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -175,8 +172,9 @@ remembered across launches.
 | Model | Engine | Size on disk | Working memory | Speed | Languages | When to use |
 |---|---|---|---|---|---|---|
 | **parakeet** *(default)* | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Default for fresh installs. Multilingual, frees the Metal GPU, lowest memory footprint. |
-| **turbo** | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Optional. Russian-only workflows that benefit from whisper's Russian model. |
-| **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Optional. Best whisper quality on hard Russian audio (accents, technical terms, noise). |
+| **whisper-ane** | Argmax WhisperKit / Core ML (ANE) | ~626 MB | ~200 MB | ~1 s | **whisper-large-v3, auto-detect (99+ langs)** | Whisper accuracy + ANE speed. Best when you want whisper-level quality without sacrificing GPU or burning RAM. |
+| **turbo** | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Optional. Russian-only workflows that prefer the whisper.cpp implementation. |
+| **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Optional. Best whisper.cpp quality on hard Russian audio (accents, technical terms, noise). |
 
 Storage:
 - whisper models: `~/Library/Application Support/Murmur/models/` (downloaded
