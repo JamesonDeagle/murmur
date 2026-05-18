@@ -26,7 +26,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.11.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.12.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -77,8 +77,10 @@ overlay disappears.
   with for **3 days** is deleted from disk on next launch. Pick it later and it
   re-downloads through the same progress UI. Keeps experimental engines from
   silently squatting ~6 GB.
-- **Smart paste** — saves your clipboard, pastes text, restores clipboard 0.5s
-  later
+- **Paste + clipboard fallback** *(v3.12)* — Murmur puts the transcribed text
+  on the clipboard and simulates Cmd+V. If you forgot to click into a text
+  field first, the paste silently fails, but the text stays on the clipboard
+  so you can paste it manually wherever you actually wanted it.
 
 ## Troubleshooting
 
