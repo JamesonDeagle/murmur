@@ -74,22 +74,27 @@ struct DownloadProgress: Sendable, Equatable {
 /// instantiate and which variant name to pass into `loadModel`.
 ///
 /// Declaration order matters: `allCases` is what populates the Model menu,
-/// and `parakeetV3` is the **default model for new installs** (see
-/// `AppState.activeModel`). Parakeet runs on the ANE, takes ~25× less RAM
-/// than whisper, and auto-detects 25 EU + JP + ZH languages — for the vast
-/// majority of users it's the right pick.
+/// and `whisperTurbo` is the **default model for new installs** (see
+/// `AppState.activeModel`). After A/B testing all six engines in v3.10 on
+/// real Russian dictation, whisper-large-v3-turbo via whisper.cpp + Metal
+/// gave the best transcription quality. Parakeet stays at #2 — it's the
+/// fastest and lightest, recommended when whisper is overkill.
 enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
-    /// Parakeet TDT v3 via Core ML on Apple Neural Engine — multilingual (25 EU langs + JP/ZH),
-    /// auto language detection, ~600 MB on disk, ~66 MB working memory, ~110× RTF on M-series.
-    /// **Default for new installs.**
+    /// whisper-large-v3-turbo via whisper.cpp + Metal — best transcription
+    /// quality on Russian audio in our tests. ~1.5 GB on disk, 1–2s per phrase.
+    /// **Default for new installs.** Russian-only by default
+    /// (whisper.cpp 1.8.4 detect_language bug).
+    case whisperTurbo = "turbo"
+    /// Parakeet TDT v3 via Core ML on Apple Neural Engine — multilingual
+    /// (25 EU langs + JP/ZH), auto language detection, ~600 MB on disk,
+    /// ~66 MB working memory, ~110× RTF. Best lightweight alternative.
     case parakeetV3 = "parakeet"
     /// whisper-large-v3-turbo via WhisperKit (Argmax) on Core ML / Apple Neural Engine — whisper
     /// quality with ANE residency. ~626 MB, ~42× RTF on M-series ANE-only. Working
-    /// language auto-detection (unlike whisper.cpp 1.8.4). Best of both worlds.
+    /// language auto-detection (unlike whisper.cpp 1.8.4).
     case whisperKitTurbo = "whisper-ane"
-    /// whisper-large-v3-turbo via whisper.cpp + Metal — fast, ~1.5 GB, Russian-only by default.
-    case whisperTurbo = "turbo"
-    /// whisper-large-v3 via whisper.cpp + Metal — best whisper quality, ~3 GB, Russian-only by default.
+    /// whisper-large-v3 via whisper.cpp + Metal — full large model, ~3 GB,
+    /// Russian-only by default. Slower than turbo but higher accuracy ceiling.
     case whisperLarge = "large"
     /// Voxtral Mini 4B Realtime (Mistral AI) via MLX. Biggest model we ship.
     /// 4-bit quantization on disk (~2 GB), runs on Apple Silicon GPU via MLX.
@@ -127,12 +132,12 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// Label shown in the menu next to the radio checkmark.
     var menuLabel: String {
         switch self {
-        case .parakeetV3:      return "parakeet  ·  ANE, multilingual, ~600 MB  (recommended)"
+        case .whisperTurbo:    return "turbo  ·  whisper.cpp + Metal, ~1.5 GB, Russian  (recommended)"
+        case .parakeetV3:      return "parakeet  ·  ANE, multilingual, ~600 MB"
         case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3 on ANE, ~626 MB, multilingual"
+        case .whisperLarge:    return "large  ·  whisper.cpp + Metal, ~3 GB, Russian"
         case .voxtralMini:     return "voxtral  ·  Mistral 4B (MLX/GPU), ~2 GB, experimental"
         case .qwen3Asr:        return "qwen3  ·  Alibaba 1.7B (MLX/GPU), 52 langs, ~3.4 GB, experimental"
-        case .whisperTurbo:    return "turbo  ·  whisper.cpp + Metal, ~1.5 GB, Russian"
-        case .whisperLarge:    return "large  ·  whisper.cpp + Metal, ~3 GB, Russian"
         }
     }
 
