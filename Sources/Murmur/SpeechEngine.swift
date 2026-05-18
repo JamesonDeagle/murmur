@@ -151,8 +151,8 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
             return t("Parakeet TDT v3  ·  600 MB  ·  28 languages",
                   ru: "Parakeet TDT v3  ·  600 МБ  ·  28 языков")
         case .whisperKitTurbo:
-            return t("whisper-large-v3-turbo (ANE)  ·  626 MB  ·  99+ languages",
-                  ru: "whisper-large-v3-turbo (ANE)  ·  626 МБ  ·  99+ языков")
+            return t("whisper-large-v3 (ANE)  ·  626 MB  ·  99+ languages",
+                  ru: "whisper-large-v3 (ANE)  ·  626 МБ  ·  99+ языков")
         case .whisperLarge:
             return t("whisper-large-v3  ·  3.0 GB  ·  Russian",
                   ru: "whisper-large-v3  ·  3,0 ГБ  ·  русский")
