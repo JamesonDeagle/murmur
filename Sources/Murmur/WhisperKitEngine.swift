@@ -58,7 +58,7 @@ actor WhisperKitEngine: SpeechEngine {
             totalBytes: -1,
             bytesPerSecond: 0,
             fraction: 0.0,
-            phase: "Downloading & compiling"
+            phase: t("Downloading & compiling", ru: "Скачивание и компиляция")
         ))
 
         do {

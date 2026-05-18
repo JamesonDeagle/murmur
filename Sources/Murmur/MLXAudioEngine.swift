@@ -90,7 +90,7 @@ actor MLXAudioEngine: SpeechEngine {
             totalBytes: -1,
             bytesPerSecond: 0,
             fraction: 0.0,
-            phase: "Downloading & loading"
+            phase: t("Downloading & loading", ru: "Скачивание и загрузка")
         ))
 
         do {
