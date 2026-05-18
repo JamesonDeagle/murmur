@@ -78,26 +78,36 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     case whisperTurbo = "turbo"
     /// whisper-large-v3 via whisper.cpp + Metal — best whisper quality, ~3 GB, Russian-only by default.
     case whisperLarge = "large"
+    /// Voxtral Mini 4B Realtime (Mistral AI) via MLX. Biggest model we ship.
+    /// 4-bit quantization on disk (~2 GB), runs on Apple Silicon GPU via MLX.
+    /// Experimental / evaluation.
+    case voxtralMini = "voxtral"
+    /// Qwen3-ASR-1.7B (Alibaba, January 2026) via MLX. 52 languages including
+    /// Russian + Ukrainian. bf16 on disk (~3.4 GB). Experimental / evaluation.
+    case qwen3Asr = "qwen3"
 
     var id: String { rawValue }
 
     var engineKind: EngineKind {
         switch self {
         case .whisperTurbo, .whisperLarge: return .whisper
-        case .parakeetV3:    return .parakeet
-        case .whisperKitTurbo: return .whisperKit
+        case .parakeetV3:           return .parakeet
+        case .whisperKitTurbo:      return .whisperKit
+        case .voxtralMini, .qwen3Asr: return .mlxAudio
         }
     }
 
     /// String passed into `SpeechEngine.loadModel(name:)`. For whisper variants
     /// this picks the .bin file; for Parakeet and WhisperKit it's informational
-    /// (single-variant for now).
+    /// (single-variant for now); for MLX-Audio it picks Voxtral vs Qwen3.
     var engineModelName: String {
         switch self {
-        case .whisperTurbo: return "turbo"
-        case .whisperLarge: return "large"
-        case .parakeetV3:   return "parakeet"
+        case .whisperTurbo:    return "turbo"
+        case .whisperLarge:    return "large"
+        case .parakeetV3:      return "parakeet"
         case .whisperKitTurbo: return "whisper-ane"
+        case .voxtralMini:     return "voxtral"
+        case .qwen3Asr:        return "qwen3"
         }
     }
 
@@ -106,6 +116,8 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .parakeetV3:      return "parakeet  ·  ANE, multilingual, ~600 MB  (recommended)"
         case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3 on ANE, ~626 MB, multilingual"
+        case .voxtralMini:     return "voxtral  ·  Mistral 4B (MLX/GPU), ~2 GB, experimental"
+        case .qwen3Asr:        return "qwen3  ·  Alibaba 1.7B (MLX/GPU), 52 langs, ~3.4 GB, experimental"
         case .whisperTurbo:    return "turbo  ·  whisper.cpp + Metal, ~1.5 GB, Russian"
         case .whisperLarge:    return "large  ·  whisper.cpp + Metal, ~3 GB, Russian"
         }
@@ -118,6 +130,8 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
         case .whisperLarge:    return "large"
         case .parakeetV3:      return "parakeet"
         case .whisperKitTurbo: return "whisper-ane"
+        case .voxtralMini:     return "voxtral"
+        case .qwen3Asr:        return "qwen3"
         }
     }
 }
@@ -130,6 +144,7 @@ enum EngineKind: Sendable {
     case whisper      // whisper.cpp + Metal GPU
     case parakeet     // FluidAudio + Core ML + ANE
     case whisperKit   // Argmax WhisperKit + Core ML + ANE
+    case mlxAudio     // mlx-audio-swift + MLX + Apple Silicon GPU (Voxtral, Qwen3)
 
     @MainActor
     func makeEngine() -> any SpeechEngine {
@@ -137,6 +152,7 @@ enum EngineKind: Sendable {
         case .whisper:     return WhisperEngine()
         case .parakeet:    return ParakeetEngine()
         case .whisperKit:  return WhisperKitEngine()
+        case .mlxAudio:    return MLXAudioEngine()
         }
     }
 }

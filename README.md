@@ -16,14 +16,16 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Four speech engines, you pick in the Model menu.**
+> **Six speech engines, you pick in the Model menu.**
 > - **parakeet** *(default)* — NVIDIA Parakeet TDT v3 on Apple Neural Engine. 25 EU + JP + ZH with auto-detect. ~600 MB, ~66 MB working memory, ~110× real-time.
-> - **whisper-ane** *(new in v3.6)* — whisper-large-v3-turbo on ANE via Argmax WhisperKit. Whisper quality + ANE speed + working auto-detect. ~626 MB.
+> - **whisper-ane** — whisper-large-v3-turbo on ANE via Argmax WhisperKit. Whisper quality + ANE speed + working auto-detect. ~626 MB.
+> - **voxtral** *(new in v3.8, experimental)* — Voxtral Mini 4B Realtime (Mistral AI) via MLX. Biggest model we ship. ~2 GB (4-bit). Multilingual. Runs on Apple Silicon GPU.
+> - **qwen3** *(new in v3.8, experimental)* — Qwen3-ASR-1.7B (Alibaba) via MLX. **52 languages including Russian + Ukrainian**. ~3.4 GB (bf16).
 > - **turbo** / **large** — whisper.cpp on Metal GPU. Russian-only (whisper.cpp 1.8.4 detect_language bug). Kept for users who already have them or specifically want the whisper.cpp behavior.
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.7.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.8.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.

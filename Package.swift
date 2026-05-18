@@ -13,6 +13,10 @@ let package = Package(
         // Same whisper quality as our whisper.cpp+Metal path but ~2× faster
         // and shares the ANE with Parakeet so no GPU pressure.
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
+        // MLX-Audio Swift SDK — Apple's MLX framework + swift-transformers,
+        // gives us Voxtral Mini 4B Realtime and Qwen3-ASR-1.7B for testing.
+        // Runs on Apple Silicon GPU/MPS via MLX (not ANE).
+        .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", branch: "main"),
     ],
     targets: [
         .systemLibrary(
@@ -25,6 +29,8 @@ let package = Package(
                 "CWhisper",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
+                .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
             ],
             path: "Sources/Murmur",
             linkerSettings: [
