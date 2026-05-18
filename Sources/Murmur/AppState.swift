@@ -105,6 +105,91 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Stale-model cleanup
+
+    /// How long an unused on-disk model survives before being auto-deleted.
+    /// User request: "if I haven't used a model in 3 days, delete it".
+    /// Storage cost of speech models is significant (whisper-large is ~3 GB,
+    /// Voxtral ~2 GB, Qwen3 ~3.4 GB) and most users only use one or two
+    /// actively. Auto-purge keeps disk usage in check; if the user picks a
+    /// purged model later, it just re-downloads via the normal load path.
+    private static let modelCacheTTL: TimeInterval = 3 * 24 * 60 * 60
+
+    private static let lastUsedDefaultsKey = "modelLastUsed"   // [String: Date] JSON
+    private static let amnestyDefaultsKey = "modelCacheAmnestyAt"  // Date
+
+    /// Record "I used model X just now". Called from `toggle()` after a
+    /// successful transcribe, so the timestamp reflects real dictation
+    /// activity, not just loading the model.
+    func touchLastUsed(_ option: SpeechModelOption) {
+        var dict = (UserDefaults.standard.dictionary(forKey: Self.lastUsedDefaultsKey) as? [String: Date]) ?? [:]
+        // UserDefaults can hand back NSDate / Double depending on how it was
+        // stored; coerce defensively when re-reading below.
+        dict[option.rawValue] = Date()
+        UserDefaults.standard.set(dict, forKey: Self.lastUsedDefaultsKey)
+    }
+
+    private func lastUsedDate(for option: SpeechModelOption) -> Date? {
+        let dict = UserDefaults.standard.dictionary(forKey: Self.lastUsedDefaultsKey) ?? [:]
+        if let d = dict[option.rawValue] as? Date { return d }
+        if let ts = dict[option.rawValue] as? Double {
+            return Date(timeIntervalSince1970: ts)
+        }
+        return nil
+    }
+
+    /// Scan every model option, and for each one whose cache exists on disk
+    /// **and** hasn't been used inside the TTL window, delete it. First-run
+    /// amnesty: on a brand-new install (or upgrade from a pre-v3.9 build
+    /// without timestamps), record "now" as the floor and don't delete
+    /// anything yet — gives the user 3 days to actually use models before
+    /// auto-purge kicks in.
+    func pruneStaleModels() async {
+        let now = Date()
+        let amnesty = UserDefaults.standard.object(forKey: Self.amnestyDefaultsKey) as? Date
+        if amnesty == nil {
+            UserDefaults.standard.set(now, forKey: Self.amnestyDefaultsKey)
+            mlog("pruneStaleModels: first run, granting 3-day amnesty before any deletion")
+            return
+        }
+
+        for option in SpeechModelOption.allCases {
+            // Build a fresh engine instance just to query cache paths.
+            // Lightweight — no model load happens here.
+            let probe = option.engineKind.makeEngine()
+            let paths = await probe.cachedModelPaths(name: option.engineModelName)
+            await probe.cleanup()
+
+            guard !paths.isEmpty else { continue }   // model isn't on disk
+
+            // If we have an explicit lastUsed timestamp, use that. Otherwise
+            // fall back to the amnesty start so models that existed before
+            // this feature shipped get the same 3-day grace as a fresh install.
+            let referenceDate = lastUsedDate(for: option) ?? amnesty!
+            let ageSeconds = now.timeIntervalSince(referenceDate)
+            guard ageSeconds > Self.modelCacheTTL else {
+                mlog("pruneStaleModels: \(option.rawValue) age=\(Int(ageSeconds))s, within TTL")
+                continue
+            }
+
+            // Stale — delete every cache path the engine reported.
+            for path in paths {
+                do {
+                    try FileManager.default.removeItem(at: path)
+                    let ageDays = Int(ageSeconds / 86_400)
+                    mlog("pruneStaleModels: deleted \(option.rawValue) (\(ageDays)d unused) at \(path.path)")
+                } catch {
+                    mlog("pruneStaleModels: failed to delete \(path.path): \(error)")
+                }
+            }
+
+            // Reset the timestamp so the next download starts a new TTL window.
+            var dict = UserDefaults.standard.dictionary(forKey: Self.lastUsedDefaultsKey) ?? [:]
+            dict.removeValue(forKey: option.rawValue)
+            UserDefaults.standard.set(dict, forKey: Self.lastUsedDefaultsKey)
+        }
+    }
+
     func selectInputDevice(_ device: AudioInputDevice) {
         selectedInputDeviceUID = device.uid
         UserDefaults.standard.set(device.uid, forKey: "inputDeviceUID")
@@ -213,6 +298,11 @@ class AppState: ObservableObject {
             return event
         }
 
+        // Stale-model cleanup runs before we load anything — if the active
+        // model itself is past TTL, it gets deleted here and re-downloaded
+        // below via the normal progress UI.
+        await pruneStaleModels()
+
         mlog("Loading model: \(activeModel.rawValue)")
         await prepareEngine(for: activeModel.engineKind)
         await engine?.loadModel(name: activeModel.engineModelName, onProgress: progressForwarder())
@@ -275,6 +365,9 @@ class AppState: ObservableObject {
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
                 TextPaster.paste(text)
+                // Mark the active model as "used today" so it survives the
+                // next stale-model sweep on startup.
+                touchLastUsed(activeModel)
             } else {
                 mlog("No text returned")
                 waveform.hide()

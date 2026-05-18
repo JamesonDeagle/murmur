@@ -22,6 +22,19 @@ protocol SpeechEngine: Actor {
     /// Free the in-memory model (CPU RAM + ANE/GPU buffers). Caller is expected
     /// to drop the actor reference afterwards if a full reset is wanted.
     func cleanup() async
+
+    /// On-disk locations this engine uses to cache `name`. Used by AppState's
+    /// stale-model cleanup to delete models that haven't been used in N days.
+    /// Returns only paths that actually exist; an empty array means either
+    /// "not downloaded" or "we can't safely delete this engine's cache" and
+    /// the cleanup will skip the model.
+    func cachedModelPaths(name: String) async -> [URL]
+}
+
+extension SpeechEngine {
+    /// Default: this engine doesn't expose its cache layout, skip cleanup.
+    /// Concrete engines override when they know their cache location.
+    func cachedModelPaths(name: String) async -> [URL] { [] }
 }
 
 // MARK: - Download progress

@@ -115,4 +115,17 @@ actor ParakeetEngine: SpeechEngine {
         asrModels = nil
         mlog("ParakeetEngine cleaned up")
     }
+
+    func cachedModelPaths(name: String) async -> [URL] {
+        // FluidAudio's documented default cache location
+        // (see DownloadUtils.swift in their repo: "~/Library/Application
+        // Support/FluidAudio/Models/").
+        guard let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+        else { return [] }
+        let dir = appSupport
+            .appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3")
+        return FileManager.default.fileExists(atPath: dir.path) ? [dir] : []
+    }
 }

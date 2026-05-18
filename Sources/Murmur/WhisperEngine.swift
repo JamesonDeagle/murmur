@@ -159,4 +159,10 @@ actor WhisperEngine: SpeechEngine {
             self.ctx = nil
         }
     }
+
+    func cachedModelPaths(name: String) async -> [URL] {
+        guard let filename = models[name] else { return [] }
+        let path = modelsDir.appendingPathComponent(filename)
+        return FileManager.default.fileExists(atPath: path.path) ? [path] : []
+    }
 }
