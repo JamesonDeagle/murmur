@@ -25,7 +25,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.8.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.9.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -74,6 +74,10 @@ overlay disappears.
 - **Multi-monitor aware** — overlay always lands on the screen with your cursor
 - **Liquid Glass UI** — native macOS Tahoe design, adaptive to dark/light mode,
   with `ultraThinMaterial` fallback on macOS 14–15
+- **Auto-delete unused models** *(new in v3.9)* — any model you haven't dictated
+  with for **3 days** is deleted from disk on next launch. Pick it later and it
+  re-downloads through the same progress UI. Keeps experimental engines from
+  silently squatting ~6 GB.
 - **Smart paste** — saves your clipboard, pastes text, restores clipboard 0.5s
   later
 

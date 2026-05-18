@@ -150,4 +150,27 @@ actor MLXAudioEngine: SpeechEngine {
         loaded = nil
         mlog("MLXAudioEngine cleaned up")
     }
+
+    func cachedModelPaths(name: String) async -> [URL] {
+        guard let variant = Self.variant(for: name) else { return [] }
+
+        // HubCache.default.cacheDirectory → ~/.cache/huggingface/hub
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let hubRoot = home.appendingPathComponent(".cache/huggingface/hub")
+
+        // mlx-audio-swift unpacks the model under mlx-audio/<repo_with_underscores>/
+        // (see ModelUtils.resolveOrDownloadModel in mlx-audio-swift source).
+        let mlxSubdir = variant.repoID.replacingOccurrences(of: "/", with: "_")
+        let mlxDir = hubRoot.appendingPathComponent("mlx-audio").appendingPathComponent(mlxSubdir)
+
+        // Hugging Face hub also stores raw snapshots/blobs under models--<org>--<name>/
+        let hubRepoDir = hubRoot.appendingPathComponent(
+            "models--" + variant.repoID.replacingOccurrences(of: "/", with: "--")
+        )
+
+        var paths: [URL] = []
+        if FileManager.default.fileExists(atPath: mlxDir.path) { paths.append(mlxDir) }
+        if FileManager.default.fileExists(atPath: hubRepoDir.path) { paths.append(hubRepoDir) }
+        return paths
+    }
 }
