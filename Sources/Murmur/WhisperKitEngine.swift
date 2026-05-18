@@ -26,11 +26,18 @@ import CoreML
 /// Trade-off: model is ~626 MB on disk (turbo) vs ~600 MB for Parakeet,
 /// working memory similar to Parakeet but slightly higher.
 actor WhisperKitEngine: SpeechEngine {
-    /// The WhisperKit name for openai/whisper-large-v3-turbo. Argmax's
-    /// recommended default for "best multilingual accuracy" in the README.
-    /// If you want full large-v3 swap to "openai_whisper-large-v3" — slower,
-    /// not a meaningful WER win for dictation use.
-    private static let modelName = "openai_whisper-large-v3-turbo"
+    /// Argmax's recommended default in the WhisperKit README: full
+    /// whisper-large-v3 (not the turbo variant) optimized for ANE down to
+    /// 626 MB. Non-turbo for higher transcription quality; if you'd rather
+    /// have the faster turbo variant, swap to `"large-v3-v20240930_turbo_632MB"`.
+    ///
+    /// Note: WhisperKit's internal path search adds the `openai_` prefix
+    /// itself (see WhisperKit.swift:269 — `*openai*\(variant)/*`), so the
+    /// string here is the variant **without** that prefix. Passing
+    /// `openai_whisper-large-v3-turbo` like we did in v3.6–v3.14 produced
+    /// the double-prefix pattern `*openai*openai_whisper-large-v3-turbo/*`
+    /// and silently fell through to `modelsUnavailable`.
+    private static let modelName = "large-v3-v20240930_626MB"
 
     private var pipe: WhisperKit?
 
