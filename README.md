@@ -25,7 +25,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.9.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.10.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -198,6 +198,16 @@ Storage:
 framework). If `xcode-select -p` points at `/Library/Developer/CommandLineTools`,
 fix it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 
+**Metal Toolchain required.** mlx-swift compiles `default.metallib` from
+its kernels, which needs the Metal Toolchain — a separate Xcode component
+not installed by default. Run once:
+
+```bash
+xcodebuild -downloadComponent MetalToolchain
+```
+
+Then build:
+
 ```bash
 git clone https://github.com/JamesonDeagle/murmur.git
 cd murmur
@@ -205,9 +215,11 @@ cd murmur
 open /Applications/Murmur.app
 ```
 
-`build-app.sh` runs `swift build -c release`, assembles the `.app` bundle,
-code-signs with your developer identity (so Accessibility permission survives
-rebuilds), and copies into `/Applications/`.
+`build-app.sh` runs `xcodebuild build -scheme Murmur -configuration Release
+ARCHS=arm64`, assembles the `.app` bundle (including SPM resource bundles
+like `mlx-swift_Cmlx.bundle` so MLX can find its metallib at runtime),
+code-signs with your developer identity (so Accessibility permission
+survives rebuilds), and copies into `/Applications/`.
 
 Plain SPM build (no bundle):
 
