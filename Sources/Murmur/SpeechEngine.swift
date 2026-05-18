@@ -131,24 +131,37 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
 
     /// Label shown in the menu next to the radio checkmark.
     ///
-    /// Single shape for every option:
-    ///   <short-name>  ·  <model + params>  ·  <compute>  ·  <size>  ·  <languages>  [·  <tag>]
+    /// Compact shape:
+    ///   <model + params>  ·  <size>  ·  <languages>  [·  <tag>]
     ///
-    /// Fields:
-    ///   - short-name: the rawValue, what UserDefaults stores
-    ///   - model: the actual upstream model id + size, e.g. "Parakeet TDT v3"
-    ///   - compute: where inference runs — Metal / ANE / GPU (MLX)
-    ///   - size: on-disk size in GB or MB
-    ///   - languages: "Russian" (hardcoded), "28 langs", "99+ langs", "multilingual"
-    ///   - tag (optional): "recommended" / "experimental"
+    /// We dropped the short-name column (it's redundant with the model
+    /// name itself) and the compute pool column (Metal vs ANE vs GPU/MLX —
+    /// interesting to developers, noise to everyone else). Where two
+    /// options share the same upstream model (turbo vs whisper-ane both
+    /// run whisper-large-v3-turbo) we disambiguate inline via "(ANE)".
+    ///
+    /// Localized to the system language: Russian if macOS is in Russian,
+    /// English otherwise.
     var menuLabel: String {
         switch self {
-        case .whisperTurbo:    return "turbo  ·  whisper-large-v3-turbo  ·  Metal  ·  1.5 GB  ·  Russian  ·  recommended"
-        case .parakeetV3:      return "parakeet  ·  Parakeet TDT v3  ·  ANE  ·  600 MB  ·  28 langs"
-        case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3-turbo  ·  ANE  ·  626 MB  ·  99+ langs"
-        case .whisperLarge:    return "large  ·  whisper-large-v3  ·  Metal  ·  3.0 GB  ·  Russian"
-        case .voxtralMini:     return "voxtral  ·  Voxtral Mini 4B  ·  GPU (MLX)  ·  2.0 GB  ·  multilingual  ·  experimental"
-        case .qwen3Asr:        return "qwen3  ·  Qwen3-ASR 1.7B  ·  GPU (MLX)  ·  3.4 GB  ·  52 langs  ·  experimental"
+        case .whisperTurbo:
+            return t("whisper-large-v3-turbo  ·  1.5 GB  ·  Russian  ·  recommended",
+                  ru: "whisper-large-v3-turbo  ·  1,5 ГБ  ·  русский  ·  рекомендуется")
+        case .parakeetV3:
+            return t("Parakeet TDT v3  ·  600 MB  ·  28 languages",
+                  ru: "Parakeet TDT v3  ·  600 МБ  ·  28 языков")
+        case .whisperKitTurbo:
+            return t("whisper-large-v3-turbo (ANE)  ·  626 MB  ·  99+ languages",
+                  ru: "whisper-large-v3-turbo (ANE)  ·  626 МБ  ·  99+ языков")
+        case .whisperLarge:
+            return t("whisper-large-v3  ·  3.0 GB  ·  Russian",
+                  ru: "whisper-large-v3  ·  3,0 ГБ  ·  русский")
+        case .voxtralMini:
+            return t("Voxtral Mini 4B  ·  2.0 GB  ·  multilingual  ·  experimental",
+                  ru: "Voxtral Mini 4B  ·  2,0 ГБ  ·  многоязычная  ·  экспериментальная")
+        case .qwen3Asr:
+            return t("Qwen3-ASR 1.7B  ·  3.4 GB  ·  52 languages  ·  experimental",
+                  ru: "Qwen3-ASR 1,7B  ·  3,4 ГБ  ·  52 языка  ·  экспериментальная")
         }
     }
 

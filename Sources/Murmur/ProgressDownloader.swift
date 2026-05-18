@@ -99,7 +99,7 @@ enum ProgressDownloader {
                     totalBytes: totalBytesExpectedToWrite,
                     bytesPerSecond: emaBytesPerSecond,
                     fraction: frac,
-                    phase: "Downloading"
+                    phase: t("Downloading", ru: "Скачивание")
                 )
                 onProgress?(progress)
             }
@@ -126,7 +126,7 @@ enum ProgressDownloader {
                         totalBytes: total,
                         bytesPerSecond: emaBytesPerSecond,
                         fraction: 1.0,
-                        phase: "Downloading"
+                        phase: t("Downloading", ru: "Скачивание")
                     ))
                 }
 

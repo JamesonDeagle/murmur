@@ -26,11 +26,11 @@ actor ParakeetEngine: SpeechEngine {
         let phase: String
         switch p.phase {
         case .listing:
-            phase = "Listing files"
+            phase = t("Listing files", ru: "Получение списка файлов")
         case .downloading(let done, let total):
-            phase = "Downloading \(done)/\(total)"
+            phase = t("Downloading \(done)/\(total)", ru: "Скачивание \(done)/\(total)")
         case .compiling(let modelName):
-            phase = "Compiling \(modelName)"
+            phase = t("Compiling \(modelName)", ru: "Компиляция \(modelName)")
         }
         return DownloadProgress(
             modelName: "parakeet",

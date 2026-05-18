@@ -16,7 +16,8 @@ struct MenuBarView: View {
                     if p.hasByteCount {
                         // Whisper-style: exact bytes + smoothed MB/s + ETA.
                         Label(
-                            "Loading \(p.modelName): \(formatBytes(p.bytesDownloaded)) / \(formatBytes(p.totalBytes))",
+                            t("Loading \(p.modelName): \(formatBytes(p.bytesDownloaded)) / \(formatBytes(p.totalBytes))",
+                              ru: "Загрузка \(p.modelName): \(formatBytes(p.bytesDownloaded)) / \(formatBytes(p.totalBytes))"),
                             systemImage: "arrow.down.circle"
                         )
                         .disabled(true)
@@ -34,30 +35,37 @@ struct MenuBarView: View {
                     }
                 } else {
                     // Pre-progress (engine init / warmup) or post-progress (about to flip to idle).
-                    Label("Loading \(appState.activeModel.shortName)...", systemImage: "hourglass")
+                    Label(t("Loading \(appState.activeModel.shortName)...",
+                          ru: "Загрузка \(appState.activeModel.shortName)…"),
+                          systemImage: "hourglass")
                         .disabled(true)
                 }
             case .idle:
-                Text("Option+Space — record / stop")
+                Text(t("Option+Space — record / stop",
+                     ru: "Option+Space — запись / стоп"))
                     .disabled(true)
-                Text("Escape — cancel")
+                Text(t("Escape — cancel",
+                     ru: "Escape — отмена"))
                     .disabled(true)
             case .recording:
-                Label("Recording...", systemImage: "mic.fill")
+                Label(t("Recording...", ru: "Запись…"), systemImage: "mic.fill")
                     .disabled(true)
             case .transcribing:
-                Label("Transcribing...", systemImage: "brain")
+                Label(t("Transcribing...", ru: "Распознавание…"), systemImage: "brain")
                     .disabled(true)
             case .paused:
-                Label("Paused — model unloaded", systemImage: "pause.circle")
+                Label(t("Paused — model unloaded",
+                      ru: "Пауза — модель выгружена"),
+                      systemImage: "pause.circle")
                     .disabled(true)
-                Text("Tap Resume to reload \(appState.activeModel.shortName)")
+                Text(t("Tap Resume to reload \(appState.activeModel.shortName)",
+                     ru: "Нажмите «Продолжить», чтобы загрузить \(appState.activeModel.shortName)"))
                     .disabled(true)
             }
 
             Divider()
 
-            Menu("Model") {
+            Menu(t("Model", ru: "Модель")) {
                 ForEach(SpeechModelOption.allCases) { option in
                     Button {
                         Task { await appState.switchModel(to: option) }
@@ -72,7 +80,7 @@ struct MenuBarView: View {
                 }
             }
 
-            Menu("Microphone") {
+            Menu(t("Microphone", ru: "Микрофон")) {
                 let devices = InputDeviceManager.availableInputDevices()
                 ForEach(devices) { device in
                     Button {
@@ -97,20 +105,24 @@ struct MenuBarView: View {
                 Button {
                     Task { await appState.resumeModel() }
                 } label: {
-                    Label("Resume \(appState.activeModel.shortName)", systemImage: "play.circle")
+                    Label(t("Resume \(appState.activeModel.shortName)",
+                          ru: "Продолжить \(appState.activeModel.shortName)"),
+                          systemImage: "play.circle")
                 }
             } else {
                 Button {
                     Task { await appState.pauseModel() }
                 } label: {
-                    Label("Pause (free RAM)", systemImage: "pause.circle")
+                    Label(t("Pause (free RAM)",
+                          ru: "Пауза (освободить ОЗУ)"),
+                          systemImage: "pause.circle")
                 }
                 .disabled(appState.state != .idle)
             }
 
             Divider()
 
-            Button("Quit Murmur") {
+            Button(t("Quit Murmur", ru: "Выйти")) {
                 HotkeyManager.shared.unregister()
                 Task { await appState.engine?.cleanup() }
                 NSApplication.shared.terminate(nil)
@@ -127,26 +139,34 @@ struct MenuBarView: View {
         f.allowedUnits = [.useMB, .useGB]
         f.includesUnit = true
         f.zeroPadsFractionDigits = false
+        // ByteCountFormatter respects the system locale automatically —
+        // "1.5 GB" in English locales becomes "1,5 ГБ" in Russian.
         return f.string(fromByteCount: bytes)
     }
 
     private func formatSpeed(_ bytesPerSecond: Double) -> String {
         guard bytesPerSecond > 0 else { return "—" }
-        return "\(formatBytes(Int64(bytesPerSecond)))/s"
+        let suffix = t("/s", ru: "/с")
+        return "\(formatBytes(Int64(bytesPerSecond)))\(suffix)"
     }
 
     /// Returns " · ETA 1m32s" (or "") so it can be appended unconditionally.
+    /// Russian variant uses "ост." (осталось) and ru abbreviations.
     private func formatETA(_ seconds: Double?) -> String {
         guard let s = seconds, s.isFinite, s > 0 else { return "" }
         let total = Int(s.rounded())
+        let etaPrefix = t(" · ETA ", ru: " · ост. ")
+        let h = t("h", ru: "ч")
+        let m = t("m", ru: "м")
+        let sUnit = t("s", ru: "с")
         if total >= 3600 {
-            let h = total / 3600, m = (total % 3600) / 60
-            return " · ETA \(h)h\(m)m"
+            let hh = total / 3600, mm = (total % 3600) / 60
+            return "\(etaPrefix)\(hh)\(h)\(mm)\(m)"
         } else if total >= 60 {
-            let m = total / 60, sec = total % 60
-            return " · ETA \(m)m\(sec)s"
+            let mm = total / 60, ss = total % 60
+            return "\(etaPrefix)\(mm)\(m)\(ss)\(sUnit)"
         } else {
-            return " · ETA \(total)s"
+            return "\(etaPrefix)\(total)\(sUnit)"
         }
     }
 }
