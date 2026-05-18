@@ -130,14 +130,25 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     }
 
     /// Label shown in the menu next to the radio checkmark.
+    ///
+    /// Single shape for every option:
+    ///   <short-name>  ·  <model + params>  ·  <compute>  ·  <size>  ·  <languages>  [·  <tag>]
+    ///
+    /// Fields:
+    ///   - short-name: the rawValue, what UserDefaults stores
+    ///   - model: the actual upstream model id + size, e.g. "Parakeet TDT v3"
+    ///   - compute: where inference runs — Metal / ANE / GPU (MLX)
+    ///   - size: on-disk size in GB or MB
+    ///   - languages: "Russian" (hardcoded), "28 langs", "99+ langs", "multilingual"
+    ///   - tag (optional): "recommended" / "experimental"
     var menuLabel: String {
         switch self {
-        case .whisperTurbo:    return "turbo  ·  whisper.cpp + Metal, ~1.5 GB, Russian  (recommended)"
-        case .parakeetV3:      return "parakeet  ·  ANE, multilingual, ~600 MB"
-        case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3 on ANE, ~626 MB, multilingual"
-        case .whisperLarge:    return "large  ·  whisper.cpp + Metal, ~3 GB, Russian"
-        case .voxtralMini:     return "voxtral  ·  Mistral 4B (MLX/GPU), ~2 GB, experimental"
-        case .qwen3Asr:        return "qwen3  ·  Alibaba 1.7B (MLX/GPU), 52 langs, ~3.4 GB, experimental"
+        case .whisperTurbo:    return "turbo  ·  whisper-large-v3-turbo  ·  Metal  ·  1.5 GB  ·  Russian  ·  recommended"
+        case .parakeetV3:      return "parakeet  ·  Parakeet TDT v3  ·  ANE  ·  600 MB  ·  28 langs"
+        case .whisperKitTurbo: return "whisper-ane  ·  whisper-large-v3-turbo  ·  ANE  ·  626 MB  ·  99+ langs"
+        case .whisperLarge:    return "large  ·  whisper-large-v3  ·  Metal  ·  3.0 GB  ·  Russian"
+        case .voxtralMini:     return "voxtral  ·  Voxtral Mini 4B  ·  GPU (MLX)  ·  2.0 GB  ·  multilingual  ·  experimental"
+        case .qwen3Asr:        return "qwen3  ·  Qwen3-ASR 1.7B  ·  GPU (MLX)  ·  3.4 GB  ·  52 langs  ·  experimental"
         }
     }
 
