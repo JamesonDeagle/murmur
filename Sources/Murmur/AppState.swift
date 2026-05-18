@@ -270,7 +270,8 @@ class AppState: ObservableObject {
             }
 
             mlog("Transcribing...")
-            if let text = await engine?.transcribe(audio: audio), !text.isEmpty {
+            if let rawText = await engine?.transcribe(audio: audio), !rawText.isEmpty {
+                let text = Self.sanitizeTranscript(rawText)
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
                 TextPaster.paste(text)
@@ -303,5 +304,81 @@ class AppState: ObservableObject {
         recorder.stop()
         waveform.hide()
         state = .idle
+    }
+
+    // MARK: - Transcript sanitization
+
+    /// Clean up tokenizer artifacts before pasting.
+    ///
+    /// Parakeet TDT's SentencePiece vocabulary is optimized for size and
+    /// doesn't include certain typographic punctuation (e.g. Russian
+    /// guillemets « », curly quotes “ ”, em-dashes). When the acoustic
+    /// model "hears" a quote-like intonation but can't find a matching
+    /// token, it falls back to the unknown-token sentinel `<unk>`,
+    /// producing output like:
+    ///
+    ///     ...кнопка <unk>Написать в техподдержку<unk>. Но...
+    ///
+    /// Whisper-family models (whisper.cpp, WhisperKit) don't have this
+    /// problem — their BPE tokenizer covers full Unicode. The sanitizer
+    /// is engine-agnostic but in practice only matters for Parakeet.
+    ///
+    /// Strategy:
+    ///   - Paired `<unk>...<unk>` (very short payload, typical quotation
+    ///     pattern) → replace both with straight double quotes `"`.
+    ///   - Any remaining stray `<unk>` → drop. We can't recover what the
+    ///     model meant, and a missing word reads better than a literal
+    ///     `<unk>` in pasted text.
+    ///   - Also strip a few other SentencePiece special tokens just in
+    ///     case (`<pad>`, `<s>`, `</s>`, `<bos>`, `<eos>`).
+    ///   - Collapse the double spaces that fall out of the cleanup.
+    static func sanitizeTranscript(_ text: String) -> String {
+        var s = text
+
+        // Paired <unk>...<unk> within a short window → double quotes.
+        // Keeps `<unk>Написать в техподдержку<unk>` → `"Написать в техподдержку"`
+        // but won't merge two unrelated quoted phrases on the same line.
+        if let regex = try? NSRegularExpression(
+            pattern: "<unk>([^<]{1,120}?)<unk>",
+            options: []
+        ) {
+            let range = NSRange(s.startIndex..., in: s)
+            s = regex.stringByReplacingMatches(
+                in: s,
+                options: [],
+                range: range,
+                withTemplate: "\"$1\""
+            )
+        }
+
+        // Strip any leftover specials.
+        for token in ["<unk>", "<pad>", "<s>", "</s>", "<bos>", "<eos>"] {
+            s = s.replacingOccurrences(of: token, with: "")
+        }
+
+        // Cleanup whitespace artifacts left by deletions.
+        if let ws = try? NSRegularExpression(pattern: "[ \\t]{2,}", options: []) {
+            s = ws.stringByReplacingMatches(
+                in: s,
+                options: [],
+                range: NSRange(s.startIndex..., in: s),
+                withTemplate: " "
+            )
+        }
+        // Space-before-punctuation that can appear after `<unk>` removal.
+        if let sp = try? NSRegularExpression(pattern: " ([,.;:!?])", options: []) {
+            s = sp.stringByReplacingMatches(
+                in: s,
+                options: [],
+                range: NSRange(s.startIndex..., in: s),
+                withTemplate: "$1"
+            )
+        }
+
+        let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned != text {
+            mlog("sanitizeTranscript: cleaned tokenizer artifacts (\(text.count) → \(cleaned.count) chars)")
+        }
+        return cleaned
     }
 }
