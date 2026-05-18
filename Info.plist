@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.murmur.app</string>
     <key>CFBundleVersion</key>
-    <string>3.7</string>
+    <string>3.8</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.7</string>
+    <string>3.8</string>
     <key>CFBundleExecutable</key>
     <string>Murmur</string>
     <key>CFBundleIconFile</key>
