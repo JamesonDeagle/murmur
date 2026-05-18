@@ -107,9 +107,15 @@ actor WhisperKitEngine: SpeechEngine {
         mlog("WhisperKitEngine.transcribe: \(audio.count) samples, max=\(maxVal), rms=\(rms)")
 
         do {
-            // language: nil + detectLanguage: true → whisper figures it out.
-            // chunkingStrategy: .vad keeps long-ish utterances reasonable; for
-            // typical Option+Space dictation (1–30s) it's a no-op.
+            // No chunking strategy on purpose. .vad in v3.15 caused
+            // `transcribe` to hang forever on short Option+Space clips
+            // (1–3 s of audio): the Voice Activity Detector kept waiting
+            // for a segment that never came and `await transcribe` never
+            // returned. Without a chunking strategy WhisperKit just runs
+            // the encoder/decoder on the whole sample buffer — which is
+            // exactly what we want for short dictation.
+            //
+            // language: nil + detectLanguage: true → whisper auto-detects.
             let options = DecodingOptions(
                 verbose: false,
                 task: .transcribe,
@@ -117,8 +123,7 @@ actor WhisperKitEngine: SpeechEngine {
                 detectLanguage: true,
                 skipSpecialTokens: true,
                 withoutTimestamps: true,
-                suppressBlank: true,
-                chunkingStrategy: .vad
+                suppressBlank: true
             )
 
             let results: [TranscriptionResult] = try await pipe.transcribe(
