@@ -9,10 +9,6 @@ let package = Package(
         // Multilingual (25 European languages + Japanese + Chinese) with built-in
         // language detection — frees us from the whisper.cpp Russian-hardcode workaround.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
-        // WhisperKit — whisper-large-v3 etc. compiled to CoreML, running on ANE.
-        // Same whisper quality as our whisper.cpp+Metal path but ~2× faster
-        // and shares the ANE with Parakeet so no GPU pressure.
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
         // MLX-Audio Swift SDK — Apple's MLX framework + swift-transformers,
         // gives us Voxtral Mini 4B Realtime and Qwen3-ASR-1.7B for testing.
         // Runs on Apple Silicon GPU/MPS via MLX (not ANE).
@@ -28,7 +24,6 @@ let package = Package(
             dependencies: [
                 "CWhisper",
                 .product(name: "FluidAudio", package: "FluidAudio"),
-                .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
                 .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
             ],
