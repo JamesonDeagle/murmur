@@ -89,10 +89,6 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// (25 EU langs + JP/ZH), auto language detection, ~600 MB on disk,
     /// ~66 MB working memory, ~110× RTF. Best lightweight alternative.
     case parakeetV3 = "parakeet"
-    /// whisper-large-v3-turbo via WhisperKit (Argmax) on Core ML / Apple Neural Engine — whisper
-    /// quality with ANE residency. ~626 MB, ~42× RTF on M-series ANE-only. Working
-    /// language auto-detection (unlike whisper.cpp 1.8.4).
-    case whisperKitTurbo = "whisper-ane"
     /// whisper-large-v3 via whisper.cpp + Metal — full large model, ~3 GB,
     /// Russian-only by default. Slower than turbo but higher accuracy ceiling.
     case whisperLarge = "large"
@@ -110,20 +106,18 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .whisperTurbo, .whisperLarge: return .whisper
         case .parakeetV3:           return .parakeet
-        case .whisperKitTurbo:      return .whisperKit
         case .voxtralMini, .qwen3Asr: return .mlxAudio
         }
     }
 
     /// String passed into `SpeechEngine.loadModel(name:)`. For whisper variants
-    /// this picks the .bin file; for Parakeet and WhisperKit it's informational
+    /// this picks the .bin file; for Parakeet it's informational
     /// (single-variant for now); for MLX-Audio it picks Voxtral vs Qwen3.
     var engineModelName: String {
         switch self {
         case .whisperTurbo:    return "turbo"
         case .whisperLarge:    return "large"
         case .parakeetV3:      return "parakeet"
-        case .whisperKitTurbo: return "whisper-ane"
         case .voxtralMini:     return "voxtral"
         case .qwen3Asr:        return "qwen3"
         }
@@ -134,14 +128,7 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// Compact shape:
     ///   <model + params>  ·  <size>  ·  <languages>  [·  <tag>]
     ///
-    /// We dropped the short-name column (it's redundant with the model
-    /// name itself) and the compute pool column (Metal vs ANE vs GPU/MLX —
-    /// interesting to developers, noise to everyone else). Where two
-    /// options share the same upstream model (turbo vs whisper-ane both
-    /// run whisper-large-v3-turbo) we disambiguate inline via "(ANE)".
-    ///
-    /// Localized to the system language: Russian if macOS is in Russian,
-    /// English otherwise.
+    /// Localized to the system language.
     var menuLabel: String {
         switch self {
         case .whisperTurbo:
@@ -150,9 +137,6 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
         case .parakeetV3:
             return t("Parakeet TDT v3  ·  600 MB  ·  28 languages",
                   ru: "Parakeet TDT v3  ·  600 МБ  ·  28 языков")
-        case .whisperKitTurbo:
-            return t("whisper-large-v3 (ANE)  ·  626 MB  ·  99+ languages",
-                  ru: "whisper-large-v3 (ANE)  ·  626 МБ  ·  99+ языков")
         case .whisperLarge:
             return t("whisper-large-v3  ·  3.0 GB  ·  Russian",
                   ru: "whisper-large-v3  ·  3,0 ГБ  ·  русский")
@@ -171,7 +155,6 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
         case .whisperTurbo:    return "turbo"
         case .whisperLarge:    return "large"
         case .parakeetV3:      return "parakeet"
-        case .whisperKitTurbo: return "whisper-ane"
         case .voxtralMini:     return "voxtral"
         case .qwen3Asr:        return "qwen3"
         }
@@ -185,7 +168,6 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
 enum EngineKind: Sendable {
     case whisper      // whisper.cpp + Metal GPU
     case parakeet     // FluidAudio + Core ML + ANE
-    case whisperKit   // Argmax WhisperKit + Core ML + ANE
     case mlxAudio     // mlx-audio-swift + MLX + Apple Silicon GPU (Voxtral, Qwen3)
 
     @MainActor
@@ -193,7 +175,6 @@ enum EngineKind: Sendable {
         switch self {
         case .whisper:     return WhisperEngine()
         case .parakeet:    return ParakeetEngine()
-        case .whisperKit:  return WhisperKitEngine()
         case .mlxAudio:    return MLXAudioEngine()
         }
     }

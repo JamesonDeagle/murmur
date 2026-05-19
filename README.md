@@ -16,17 +16,16 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Six speech engines, you pick in the Model menu.**
+> **Five speech engines, you pick in the Model menu.**
 > - **turbo** *(default, recommended)* — whisper-large-v3-turbo via whisper.cpp + Metal GPU. **Best transcription quality** based on our A/B tests on Russian dictation. ~1.5 GB, 1–2s per phrase. Russian by default (one line to switch).
 > - **parakeet** — NVIDIA Parakeet TDT v3 on Apple Neural Engine. Lightest option, 25 EU + JP + ZH with auto-detect. ~600 MB, ~66 MB working memory, ~110× real-time. Pick this when whisper is overkill.
-> - **whisper-ane** — whisper-large-v3-turbo on ANE via Argmax WhisperKit. Whisper quality with ANE residency + working auto-detect. ~626 MB.
 > - **large** — whisper.cpp + Metal, full large model (not turbo). ~3 GB, higher accuracy ceiling, slower.
 > - **voxtral** *(experimental)* — Voxtral Mini 4B Realtime (Mistral AI) via MLX. ~2 GB. Runs on Apple Silicon GPU.
 > - **qwen3** *(experimental)* — Qwen3-ASR-1.7B (Alibaba) via MLX. **52 languages including Russian + Ukrainian**. ~3.4 GB.
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.15.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.17.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -180,7 +179,6 @@ remembered across launches.
 |---|---|---|---|---|---|---|
 | **turbo** *(default)* | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Default for fresh installs. Best transcription quality in our A/B tests on Russian dictation. |
 | **parakeet** | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Lightest option. Multilingual, frees the Metal GPU, lowest memory footprint. |
-| **whisper-ane** | Argmax WhisperKit / Core ML (ANE) | ~626 MB | ~200 MB | ~1 s | **whisper-large-v3, auto-detect (99+ langs)** | Whisper quality with ANE residency. Useful when you need multilingual + whisper-level accuracy. |
 | **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Full whisper-large-v3 model. Slower but higher accuracy ceiling than turbo. |
 
 Storage:
