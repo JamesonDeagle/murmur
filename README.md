@@ -25,7 +25,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.18.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.19.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
