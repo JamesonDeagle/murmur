@@ -289,7 +289,14 @@ class AppState: ObservableObject {
             }
         }
 
-        // Register Escape to cancel
+        // Escape cancels an in-progress recording. We need TWO monitors
+        // because users dictate to insert text into OTHER apps — so the
+        // foreground app is almost never Murmur, and a local-only monitor
+        // wouldn't see the Escape key at all.
+        //
+        // Local monitor: fires when Murmur itself is frontmost (e.g. the
+        // menubar dropdown is open). Returning nil swallows the event so
+        // it doesn't propagate into our SwiftUI hierarchy.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Escape
                 Task { @MainActor in
@@ -298,6 +305,18 @@ class AppState: ObservableObject {
                 return nil
             }
             return event
+        }
+        // Global monitor: fires when any OTHER app is frontmost. AppKit
+        // doesn't let global monitors swallow events (callback returns
+        // Void), so Escape still reaches the foreground app — which is
+        // exactly what we want, Escape there usually just closes a
+        // modal / removes focus. Side-effect-free for the user.
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { // Escape
+                Task { @MainActor in
+                    self?.cancel()
+                }
+            }
         }
 
         // Stale-model cleanup runs before we load anything — if the active
