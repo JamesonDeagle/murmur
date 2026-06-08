@@ -22,10 +22,14 @@ class WaveformPanel: ObservableObject {
         case transcribing
     }
 
-    // The pill the user sees: notch height (37 on M-series Pro) plus the
-    // orbital loader's diameter (52pt). Centered content lands flush
-    // against the notch's bottom edge.
-    private let pillVisibleHeight: CGFloat = 89
+    // The pill the user sees: physical notch height (≈37 pt on M-series
+    // Pro, ≈32 pt on Air) plus the centre bar's peak height (40 pt) plus
+    // a 4-pt breathing-room margin at the bottom. WaveformView pins the
+    // bars to `.top` of the bar zone, so the peak of the loudest centre
+    // bar sits **flush against the notch's bottom edge** on M-series
+    // MacBooks, and the 4 pt of slack lives entirely at the bottom edge
+    // of the pill — feels less cramped than a hard bottom corner.
+    private let pillVisibleHeight: CGFloat = 81
 
     /// Extra transparent space BELOW the pill, sized to absorb the
     /// easeOutBack overshoot (peaks around +13% of pill height ≈ 12pt;
@@ -42,7 +46,7 @@ class WaveformPanel: ObservableObject {
 
     /// Pushed to the SwiftUI view so the pill renders at a fixed visible
     /// height regardless of the host NSPanel size.
-    @Published var pillHeight: CGFloat = 89
+    @Published var pillHeight: CGFloat = 81
     /// Fallback width for Macs without a physical notch (Mac mini, Studio,
     /// older MacBooks, external displays). 200 pt approximates an M-series
     /// notch so the pill keeps the same visual scale on every Mac.
@@ -83,6 +87,16 @@ class WaveformPanel: ObservableObject {
         withAnimation(hideAnimation) {
             isVisible = false
         }
+        // CRITICAL: reset mode out of `.transcribing` so the centre-dot
+        // pulse loop in WaveformView stops scheduling itself. The pulse
+        // is a two-stroke `withAnimation { … } completion: { … }` chain
+        // that keys off `panel.mode == .transcribing` to decide whether
+        // to re-arm. If we leave mode at `.transcribing` after hide(),
+        // the chain runs forever in the background, gradually
+        // starving the main runloop — and Carbon's RegisterEventHotKey
+        // callback (Option+Space) stops firing within a minute or two
+        // because its events get dropped behind animation work.
+        mode = .recording
         DispatchQueue.main.asyncAfter(deadline: .now() + hideAnimationDuration + 0.04) { [weak self] in
             self?.panel?.orderOut(nil)
         }

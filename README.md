@@ -25,7 +25,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.19.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.20.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -53,10 +53,16 @@ That's it. No accounts, no API keys, nothing leaves your Mac.
 | Switch microphone | menu → **Microphone** |
 | Quit | menu → **Quit Murmur** (`⌘Q`) |
 
-While recording, a small floating capsule appears near the bottom of the screen
-with live audio levels. After you stop, an orbital loader spins for 1–3 seconds
-while whisper transcribes; then your text is pasted at the cursor and the
-overlay disappears.
+While recording, a black pill drops out **from under the MacBook notch** (or
+from the top edge of the screen on Macs without a notch). It exactly matches
+the physical notch width, so visually it reads as the notch itself stretching
+downward — 11 round-tipped white bars inside it track your live audio levels.
+
+When you stop, the bars **collapse in pairs from the edges inward** like a
+fast wave, leaving just one dot in the middle. The dot then pulses — springy
+expansion outward, calm easeOut back — until whisper finishes (typically
+1–3 seconds). Your text is pasted at the cursor and the pill retracts back
+into the notch.
 
 ## Features
 
@@ -70,8 +76,16 @@ overlay disappears.
 - **Microphone selector** — defaults to built-in mic; doesn't get confused by
   Bluetooth speakers or virtual devices
 - **Multi-monitor aware** — overlay always lands on the screen with your cursor
-- **Liquid Glass UI** — native macOS Tahoe design, adaptive to dark/light mode,
-  with `ultraThinMaterial` fallback on macOS 14–15
+- **Notch-style overlay** *(v3.19)* — a black pill flush with the top of the
+  screen, matched to the physical notch width via
+  `NSScreen.auxiliaryTopLeftArea/Right`. On notch-less Macs (Mac mini, Studio,
+  Air without notch) it falls back to a 200 pt centered pill that reads the
+  same way against the menu bar
+- **Reactive waveform + pulsing dot** *(v3.20)* — capsule bars with circle-
+  minimum (the quietest bars are perfect dots, never thin lines). On stop
+  the bars collapse pair-by-pair from the edges inward, then the centre
+  dot pulses with a springy bounce on expand, easeOut on contract, until
+  whisper finishes
 - **Auto-delete unused models** *(new in v3.9)* — any model you haven't dictated
   with for **3 days** is deleted from disk on next launch. Pick it later and it
   re-downloads through the same progress UI. Keeps experimental engines from
@@ -241,7 +255,7 @@ Option+Space → AudioRecorder.stop()
   → (any SpeechEngine).transcribe() ─┬─ WhisperEngine  [whisper.cpp + Metal GPU]
                                      └─ ParakeetEngine [FluidAudio + Core ML + ANE]
   → TextPaster.paste()               [NSPasteboard + simulated Cmd+V]
-                                     [restores clipboard after 0.5 s]
+                                     [text stays on clipboard for manual paste]
 ```
 
 | Component | Role | Threading |
