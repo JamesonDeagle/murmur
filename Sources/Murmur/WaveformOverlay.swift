@@ -45,8 +45,8 @@ class WaveformPanel: ObservableObject {
     /// stroke to render without clipping. The glow's `blur(radius:)` can
     /// extend up to ~40 pt outside the stroke's path, so we pad the panel
     /// generously on the sides and below the notch.
-    private let glowPaddingSides: CGFloat = 160
-    private let glowPaddingBottom: CGFloat = 170
+    private let glowPaddingSides: CGFloat = 200
+    private let glowPaddingBottom: CGFloat = 200
 
     /// Fallback for Macs without a physical notch.
     private let fallbackWidth: CGFloat = 200

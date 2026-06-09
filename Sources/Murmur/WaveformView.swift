@@ -32,14 +32,17 @@ struct WaveformView: View {
     private let maxIntensity: CGFloat = 1.0
 
     /// Stroke width and blur radius scale linearly from idle → peak.
-    /// Baseline values are tiny (1 / 3 pt) so silence renders as a very
-    /// thin halo; gain values are large so loud speech blooms out
-    /// dramatically — overall stroke ratio is now ~25× silence→peak,
-    /// up from ~5× before.
-    private let baseStroke: CGFloat = 1
-    private let strokeGain: CGFloat = 36
-    private let baseBlur: CGFloat = 3
-    private let blurGain: CGFloat = 46
+    /// Baseline values give a clearly-visible glow even at silence
+    /// (so the user always knows the recorder is on), gain values are
+    /// large so loud speech blooms out dramatically. Bumped from the
+    /// previous tiny baseline because once the contour was pulled
+    /// flush with the notch (glowExtraSides=0), half of the stroke
+    /// disappears under the bezel — so the visible outside half needs
+    /// to be wider to keep its visual presence.
+    private let baseStroke: CGFloat = 4
+    private let strokeGain: CGFloat = 42
+    private let baseBlur: CGFloat = 7
+    private let blurGain: CGFloat = 52
 
     /// Power-curve boost on the smoothed level. Audio RMS lives mostly
     /// in the lower half of [0, 1]; `pow(level, 0.55)` lifts that into
@@ -49,25 +52,25 @@ struct WaveformView: View {
     // MARK: - Flow speed (gradient phase)
 
     /// Baseline cycle frequency at silence — one full colour cycle every
-    /// ~25 seconds. Deliberately glacial so the glow visibly *stops*
-    /// flowing when the user isn't talking, and any speech reads as a
-    /// dramatic speed-up by contrast.
-    private let basePhaseSpeed: CGFloat = 0.04
-    /// Additional cycles-per-second at level=1.0. So a loud speaker can
-    /// push the cycle rate up to ~1.24 cps = one cycle every 0.8 s.
-    /// The contribution runs through `speedLevelCurve` first so quiet
-    /// speech gets a disproportionately large bump (sqrt curve), giving
-    /// the user clear visual feedback even when they don't shout.
-    private let levelSpeedBoost: CGFloat = 1.2
+    /// ~10 seconds. Slow enough to feel ambient when nobody's talking,
+    /// fast enough that you can still see the flow moving at all.
+    private let basePhaseSpeed: CGFloat = 0.10
+    /// Additional cycles-per-second at level=1.0. Pushed high so a
+    /// loud speaker can rip the cycle rate up to ~3.6 cps = one full
+    /// pink→cyan→pink cycle every 0.28 s — visibly racing, not just
+    /// "a bit faster than baseline". Combined with `basePhaseSpeed`
+    /// this gives a 36× silence-to-peak speed ratio.
+    private let levelSpeedBoost: CGFloat = 3.5
     /// Power curve applied to level before it multiplies `levelSpeedBoost`.
-    /// 0.5 = sqrt → quiet/medium volume jumps the speed dramatically, peaks
-    /// still max out. Compared to a linear mapping this gives:
-    ///   - level 0.10 →  37 % boost (instead of 10 %)
-    ///   - level 0.30 →  55 % boost (instead of 30 %)
-    ///   - level 0.50 →  71 % boost (instead of 50 %)
-    /// So quiet conversation already feels like brisk shimmer, not just
-    /// "slightly faster than silence".
-    private let speedLevelCurve: CGFloat = 0.5
+    /// 0.6 spreads the response across the whole talking range:
+    ///   - level 0.10 →  25 % of boost → ~0.98 cps  (1.0 s / cycle)
+    ///   - level 0.30 →  48 % of boost → ~1.78 cps  (0.56 s / cycle)
+    ///   - level 0.50 →  66 % of boost → ~2.41 cps  (0.41 s / cycle)
+    ///   - level 0.80 →  88 % of boost → ~3.18 cps  (0.31 s / cycle)
+    ///   - level 1.00 → 100 % of boost → ~3.60 cps  (0.28 s / cycle)
+    /// So quiet vs medium vs loud each give distinctly different flow
+    /// rates — and the maximum is dramatically faster than silence.
+    private let speedLevelCurve: CGFloat = 0.6
     /// Constant moderate flow rate used during transcribing (no live
     /// mic level), ~one cycle every 4 s. Reads as "still alive, just
     /// waiting on whisper".
@@ -75,22 +78,35 @@ struct WaveformView: View {
 
     // MARK: - Geometry
 
-    /// How much wider than the notch the glow shape is on each side.
-    /// The stroke runs along the perimeter of *this* rectangle, so the
-    /// glow contour sits **outside** the physical notch instead of being
-    /// pinched against its edges. Without this slack we get little
-    /// coloured corners poking out from under the notch's rounded
-    /// bottom — exactly the bug the user reported.
-    private let glowExtraSides: CGFloat = 12
-    /// Extra height below the notch — controls how far the bottom arc
-    /// of the glow extends past the notch into the menu-bar area.
-    private let glowExtraBottom: CGFloat = 16
-    /// Bottom corner radius for the glow contour. Tuned so the rounded
-    /// curve flows smoothly around the physical notch's own rounded
-    /// internal corners (which are ~8 pt) plus our `glowExtraBottom`
-    /// slack, giving an `8 + 16 ≈ 24` pt visual radius. We round it to
-    /// 22 — looks more deliberate than the exact algebraic value.
-    private let glowBottomCornerRadius: CGFloat = 22
+    /// Glow contour sits **flush** with the physical notch — no side or
+    /// bottom slack. `stroke()` draws centred on the path, so half the
+    /// stroke width lives inside the notch's rectangle (invisible —
+    /// hidden by the physical bezel) and half lives outside (visible
+    /// as the ambient ring). Without this, the glow looks "detached"
+    /// from the notch with an obvious gap, especially at thin baseline
+    /// (silence) widths.
+    private let glowExtraSides: CGFloat = 0
+    private let glowExtraBottom: CGFloat = 0
+    /// Bottom corner radius — matches the physical inner radius of the
+    /// MacBook notch (~8 pt on M-series) so the curve follows the
+    /// hardware edge instead of cutting across it.
+    private let glowBottomCornerRadius: CGFloat = 8
+
+    /// Soft dark scrim under the colour glow. A wide blurred black
+    /// stroke along the notch contour darkens whatever is behind it
+    /// (browser tab bar, white page, etc.) so the gradient reads with
+    /// the same contrast on any backdrop. Without this, on white
+    /// pages the glow nearly disappears.
+    ///
+    /// Stroke is fat (24 pt) so the scrim body has presence even after
+    /// blur. Blur is moderate (35 pt) so the darkening stays
+    /// concentrated near the notch instead of fading into invisibility
+    /// across 200 pt of falloff. Baseline opacity is high enough to be
+    /// clearly visible on white (≈48% black → mid-grey rim).
+    private let scrimStroke: CGFloat = 32
+    private let scrimBlur: CGFloat = 45
+    private let scrimBaseOpacity: CGFloat = 0.48
+    private let scrimIntensityGain: CGFloat = 0.18
 
     /// How far the **blur halo** is allowed to spill past the glow
     /// shape's rectangle. Both the FlowingGradient fill and the mask
@@ -99,17 +115,17 @@ struct WaveformView: View {
     /// frame edge and we see hard rectangular cut-offs.
     ///
     /// Sized for the worst-case loud-talk peak. At intensity = 1.0:
-    ///   - inner-line blur radius = `baseBlur + blurGain = 3 + 46 = 49`
-    ///   - outer-halo blur radius = `49 × 1.4 = 68.6 pt`
+    ///   - inner-line blur radius = `baseBlur + blurGain = 7 + 52 = 59`
+    ///   - outer-halo blur radius = `59 × 1.7 = 100.3 pt`
     /// Gaussian visible falloff is ~σ × 3 (where σ ≈ radius / 2 for
-    /// SwiftUI's `.blur`), so ~100 pt of bloom past the stroke at peak.
-    /// On corners the bloom from two adjacent edges stacks → empirically
-    /// add ~40 pt for safety. We want ≥ 140 pt slack here.
+    /// SwiftUI's `.blur`), so ~150 pt of bloom past the stroke at peak.
+    /// On corners the bloom from two adjacent edges stacks → add ~30 pt
+    /// for safety. We want ≥ 180 pt slack here.
     ///
     /// Must be ≤ `glowPaddingSides`/`glowPaddingBottom` in
     /// WaveformOverlay, or the slack clips against the NSPanel's own
     /// edge instead of helping.
-    private let blurSpill: CGFloat = 140
+    private let blurSpill: CGFloat = 180
 
     // MARK: - State
 
@@ -176,14 +192,24 @@ struct WaveformView: View {
                 }
                 .transition(.opacity)
                 .onAppear {
-                    // Reset phase state every time the panel becomes
-                    // visible. `@State` survives view removal/recreation
-                    // in some SwiftUI configurations, so we make the
-                    // reset explicit — guarantees every dictation starts
-                    // from phase 0 and `lastPhaseUpdate=0` triggers the
-                    // skip-first-frame branch in `advancePhase()`.
+                    // Reset all @State that drives the visuals to match
+                    // the current panel.mode at the start of each new
+                    // dictation. SwiftUI keeps @State alive across view
+                    // removal/recreation in some configurations, so the
+                    // previous session's leftovers can bleed in:
+                    //   - phase / lastPhaseUpdate → wrong gradient start
+                    //   - transitionProgress → wrong palette colour!
+                    //     If the previous session ended mid-transcribing
+                    //     (progress=1.0), the next recording would show
+                    //     the BLUE transcribing palette instead of the
+                    //     pink/yellow/cyan recording one, because
+                    //     `.onChange(of: panel.mode)` only fires on
+                    //     actual changes — and after `hide()` resets
+                    //     mode back to .recording, the next show() sees
+                    //     no change to fire on.
                     phase = 0
                     lastPhaseUpdate = 0
+                    transitionProgress = (panel.mode == .transcribing) ? 1.0 : 0.0
                 }
                 .onChange(of: panel.mode) { _, newMode in
                     // Single source of truth for "are we mid-morph".
@@ -224,8 +250,21 @@ struct WaveformView: View {
         let shapeH = panel.topInset + glowExtraBottom
         let outerW = shapeW + blurSpill * 2
         let outerH = shapeH + blurSpill
+        let scrimOpacity = scrimBaseOpacity + scrimIntensityGain * intensity
 
         ZStack {
+            // Scrim — soft dark halo drawn FIRST so it sits underneath
+            // the colour glow. Same shape, same outer-frame trick, but
+            // filled with black (not gradient) and blurred wider. Reads
+            // as the notch casting a subtle shadow onto the desktop /
+            // page behind, lifting the colour glow off any backdrop.
+            shape
+                .stroke(.black, style: StrokeStyle(lineWidth: scrimStroke, lineCap: .round))
+                .frame(width: shapeW, height: shapeH, alignment: .top)
+                .frame(width: outerW, height: outerH, alignment: .top)
+                .blur(radius: scrimBlur)
+                .opacity(scrimOpacity)
+
             // Outer halo: thick crisp-stroke mask → heavy blur applied
             // to the result. The gradient fill spans the **outer** frame
             // (shape size + blur spill on all sides), so when the blur
@@ -235,17 +274,17 @@ struct WaveformView: View {
                 .frame(width: outerW, height: outerH, alignment: .top)
                 .mask(
                     shape
-                        .stroke(.white, style: StrokeStyle(lineWidth: stroke * 1.6, lineCap: .round))
+                        .stroke(.white, style: StrokeStyle(lineWidth: stroke * 1.9, lineCap: .round))
                         .frame(width: shapeW, height: shapeH, alignment: .top)
                         .frame(width: outerW, height: outerH, alignment: .top)
                 )
-                .blur(radius: blur * 1.4)
+                .blur(radius: blur * 1.7)
                 // Outer halo opacity scales with intensity too — silence
                 // gives a translucent shimmer, peaks light up. Without
                 // this scaling the halo body stays equally "present" at
                 // any volume and the contrast feels muted even though
                 // stroke / blur are doing their job.
-                .opacity(0.4 + 0.5 * intensity)
+                .opacity(0.55 + 0.4 * intensity)
 
             // Inner crisp line — same composition but with a thinner
             // mask stroke and lighter blur. Same outer-frame trick so
