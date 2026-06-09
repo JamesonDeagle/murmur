@@ -27,19 +27,56 @@
 
 1. **Download** `Murmur-3.21.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
-3. **Launch** it. macOS will ask for two permissions:
+3. **First-launch step** *(important — macOS will block a double-click)*:
+   - Open Finder → `Applications`.
+   - **Right-click** (or Control-click) on `Murmur.app`.
+   - Choose **Open** from the context menu.
+   - macOS shows a dialog: *"macOS cannot verify the developer of Murmur."*
+   - Click **Open** again. Done — macOS remembers your choice and from now
+     on you can launch Murmur normally.
+
+   <details>
+   <summary>Why this extra step?</summary>
+
+   Murmur is signed ad-hoc (no paid Apple Developer ID — this is a free
+   open-source project). Gatekeeper requires a one-time explicit user
+   action to launch any ad-hoc-signed app. Double-clicking shows a
+   scary "cannot be opened" alert with no Open button; only the
+   Right-click → Open path unlocks the override. After that one
+   confirmation, every subsequent launch is silent.
+
+   The same flow works for any other open-source macOS app shipped
+   outside the App Store.
+   </details>
+
+4. **Grant permissions.** macOS will ask for two:
    - **Microphone** — say yes, that's how it hears you.
    - **Accessibility** — needed to type the transcribed text into other apps.
-4. **Wait once** for **whisper-turbo** to download (~1.5 GB from Hugging
+5. **Wait once** for **whisper-turbo** to download (~1.5 GB from Hugging
    Face). You'll see live progress in the menu:
    ```
    ⬇ Loading turbo: 245 MB / 1,53 GB
    16% · 12,4 MB/s · ETA 1m32s
    ```
-5. **Done.** Click into any text field, press **Option+Space**, talk, press
+6. **Done.** Click into any text field, press **Option+Space**, talk, press
    again. Your words appear at the cursor.
 
 That's it. No accounts, no API keys, nothing leaves your Mac.
+
+### If macOS says the app is damaged
+
+If you see *"Murmur is damaged and can't be opened"* (without the
+Right-click → Open path even being offered), it's the
+`com.apple.quarantine` extended attribute your browser stuck on the DMG.
+Strip it once:
+
+```bash
+sudo xattr -rd com.apple.quarantine /Applications/Murmur.app
+```
+
+Then launch normally. This isn't a bug in Murmur — it's macOS being
+extra cautious with downloads from new domains/browsers, and the same
+fix applies to most open-source Mac apps.
 
 ## How to use
 
