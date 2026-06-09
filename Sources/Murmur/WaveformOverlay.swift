@@ -1,82 +1,76 @@
 import SwiftUI
 import AppKit
 
-/// Floating overlay window that visually emerges from the MacBook notch
-/// (or top-of-screen on Macs without a notch) and shows the recording
-/// waveform / transcription orbital loader inside it.
+/// Floating overlay that surrounds the MacBook notch with an **ambient
+/// light glow** while the app is recording or transcribing. There is no
+/// solid panel any more — the host NSPanel is transparent and slightly
+/// larger than the notch, just to give SwiftUI room to render the blurred
+/// stroke of the glow around the notch's bottom and sides.
 ///
-/// Visual trick: the window is solid black with the top edge flush against
-/// the screen edge and only the **bottom** corners rounded. To the eye it
-/// reads as the physical notch "expanding" downward to make room for our
-/// UI. On Macs without a notch the same pill just looks like a Dynamic-
-/// Island-style tab at the top.
+/// On a MacBook the physical notch covers the centre-top of the panel,
+/// so the stroke is only visible **around the perimeter of the notch**
+/// (the two thin rails to the left and right, and the wider arc below).
+/// To the eye that reads as the notch itself emitting light.
+///
+/// On notch-less Macs (Mac mini, Studio, Air without notch) the same
+/// rounded pill of glow sits at the top edge — looks intentional, like a
+/// soft status indicator instead of an "outline of nothing".
 @MainActor
 class WaveformPanel: ObservableObject {
     private var panel: NSPanel?
     @Published var isVisible = false
     @Published var mode: WaveformMode = .recording
-    @Published var levels: [Float] = Array(repeating: 0.15, count: 11)
+    /// Smoothed audio peak in [0, 1]. EMA over the per-frame max of the
+    /// 11 RMS bands, so the glow's intensity / flow speed tracks
+    /// loud↔quiet without jittering on every 60-Hz audio tick.
+    /// WaveformView reads this for stroke width, blur radius, and flow
+    /// rate. The raw 11-band array is consumed only on the audio
+    /// callback to compute `smoothedLevel` — we don't store it; the old
+    /// bar-rendering pipeline that needed all 11 bands is gone.
+    @Published var smoothedLevel: CGFloat = 0
 
     enum WaveformMode {
         case recording
         case transcribing
     }
 
-    // The pill the user sees: physical notch height (≈37 pt on M-series
-    // Pro, ≈32 pt on Air) plus the centre bar's peak height (40 pt) plus
-    // a 4-pt breathing-room margin at the bottom. WaveformView pins the
-    // bars to `.top` of the bar zone, so the peak of the loudest centre
-    // bar sits **flush against the notch's bottom edge** on M-series
-    // MacBooks, and the 4 pt of slack lives entirely at the bottom edge
-    // of the pill — feels less cramped than a hard bottom corner.
-    private let pillVisibleHeight: CGFloat = 81
+    /// Physical notch size — `topInset` is the notch height, `notchWidth`
+    /// is the gap between `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`.
+    /// On notch-less Macs both fall back to plausible defaults so the glow
+    /// has a sensible footprint to wrap.
+    @Published var topInset: CGFloat = 32
+    @Published var notchWidth: CGFloat = 200
 
-    /// Extra transparent space BELOW the pill, sized to absorb the
-    /// easeOutBack overshoot (peaks around +13% of pill height ≈ 12pt;
-    /// 24pt gives a comfortable margin). Without this buffer the
-    /// `scaleEffect` blooms past NSPanel.bounds and the bottom of the
-    /// pill clips against the window's hard edge during the bounce.
-    private let overshootBuffer: CGFloat = 24
+    /// Extra space the NSPanel needs around the notch for the blurred
+    /// stroke to render without clipping. The glow's `blur(radius:)` can
+    /// extend up to ~40 pt outside the stroke's path, so we pad the panel
+    /// generously on the sides and below the notch.
+    private let glowPaddingSides: CGFloat = 160
+    private let glowPaddingBottom: CGFloat = 170
 
-    /// NSPanel height = pill + bounce slack. Top of the window stays
-    /// flush with the top of the screen; the extra room is at the bottom
-    /// (where it's invisible since the pill is opaque and that area is
-    /// transparent).
-    private var panelHeight: CGFloat { pillVisibleHeight + overshootBuffer }
-
-    /// Pushed to the SwiftUI view so the pill renders at a fixed visible
-    /// height regardless of the host NSPanel size.
-    @Published var pillHeight: CGFloat = 81
-    /// Fallback width for Macs without a physical notch (Mac mini, Studio,
-    /// older MacBooks, external displays). 200 pt approximates an M-series
-    /// notch so the pill keeps the same visual scale on every Mac.
+    /// Fallback for Macs without a physical notch.
     private let fallbackWidth: CGFloat = 200
 
     /// Computed in `repositionPanel()` and read by NSPanel.setFrame.
-    private var panelWidth: CGFloat = 200
+    private var panelWidth: CGFloat = 320
+    private var panelHeight: CGFloat = 130
 
-    /// Height of the notch / menu bar — content inside the panel needs to
-    /// sit BELOW this so the physical notch doesn't cover the waveform.
-    /// Recomputed on each show() in `repositionPanel()`.
-    @Published var topInset: CGFloat = 24
-
-    /// easeOutBack — quick start with a slight overshoot at the end so the
-    /// notch "snaps" into place instead of arriving stiff. Bezier values
-    /// are the CSS standard for easeOutBack (cubic-bezier 0.34, 1.56,
-    /// 0.64, 1.0).
-    private let showAnimation: Animation = .timingCurve(0.34, 1.56, 0.64, 1.0, duration: 0.26)
-    /// easeOut — same fast start, gentle settle, no overshoot on the way
-    /// out (Apple HIG recommends not bouncing on dismiss).
+    private let showAnimation: Animation = .easeOut(duration: 0.22)
     private let hideAnimation: Animation = .easeOut(duration: 0.18)
-    /// Match `hideAnimation` so the window only orders out after the fade
-    /// has finished visually.
     private let hideAnimationDuration: TimeInterval = 0.18
+
+    /// EMA smoothing factor for `smoothedLevel`. Lower = more reactive,
+    /// higher = lazier. 0.4 gives a snappy response — each spoken
+    /// syllable visibly bumps the flow speed instead of getting averaged
+    /// out into a vague "you're talking" baseline. Anything below 0.3
+    /// starts to feel jittery on every audio frame.
+    private let levelSmoothing: CGFloat = 0.4
 
     func show() {
         if panel == nil { createPanel() }
-        repositionPanel()      // recompute every show — multi-monitor / display hot-plug
+        repositionPanel()   // recompute every show — multi-monitor / display hot-plug
         mode = .recording
-        pillHeight = pillVisibleHeight   // keep in sync if values change
+        smoothedLevel = 0
         panel?.orderFront(nil)
         withAnimation(showAnimation) {
             isVisible = true
@@ -87,15 +81,11 @@ class WaveformPanel: ObservableObject {
         withAnimation(hideAnimation) {
             isVisible = false
         }
-        // CRITICAL: reset mode out of `.transcribing` so the centre-dot
-        // pulse loop in WaveformView stops scheduling itself. The pulse
-        // is a two-stroke `withAnimation { … } completion: { … }` chain
-        // that keys off `panel.mode == .transcribing` to decide whether
-        // to re-arm. If we leave mode at `.transcribing` after hide(),
-        // the chain runs forever in the background, gradually
-        // starving the main runloop — and Carbon's RegisterEventHotKey
-        // callback (Option+Space) stops firing within a minute or two
-        // because its events get dropped behind animation work.
+        // Reset mode out of `.transcribing` so any animation loops keyed
+        // on `panel.mode == .transcribing` in WaveformView stop scheduling
+        // themselves (otherwise the loop would burn main-thread budget
+        // forever after the panel is invisible — that's how v3.20 broke
+        // the Option+Space hotkey).
         mode = .recording
         DispatchQueue.main.asyncAfter(deadline: .now() + hideAnimationDuration + 0.04) { [weak self] in
             self?.panel?.orderOut(nil)
@@ -107,7 +97,13 @@ class WaveformPanel: ObservableObject {
     }
 
     func updateLevels(_ newLevels: [Float]) {
-        levels = newLevels
+        // Track the loudest band as our intensity signal; EMA-smooth it.
+        // We deliberately don't @Published-store the raw array — the new
+        // ambient-glow renderer only needs the smoothed peak, and a
+        // 60 Hz @Published array would trigger objectWillChange on every
+        // audio frame for no consumer.
+        let peak = CGFloat(newLevels.max() ?? 0)
+        smoothedLevel = smoothedLevel * levelSmoothing + peak * (1 - levelSmoothing)
     }
 
     private func createPanel() {
@@ -121,8 +117,9 @@ class WaveformPanel: ObservableObject {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // .statusBar — above the system menu bar so we visually flow out
-        // of the notch instead of sitting under the menu bar.
+        // .statusBar — above the system menu bar so the glow's bottom
+        // arc lights up the menu-bar area instead of being hidden under
+        // it.
         panel.level = .statusBar
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
@@ -139,17 +136,11 @@ class WaveformPanel: ObservableObject {
         self.panel = panel
     }
 
-    /// Position the panel so its **top edge is flush with the very top of
-    /// the screen**, covering the menu bar / notch area entirely, and its
-    /// **width matches the physical notch exactly** (or a notch-sized
-    /// fallback on Macs without one). The black surface then reads as the
-    /// physical notch stretching straight down — same width as the notch,
-    /// extending only the height.
-    ///
-    /// `topInset` (notch height on MacBooks, menu-bar height elsewhere)
-    /// is published so `WaveformView` can pad its content down past the
-    /// notch — otherwise the waveform would be hidden behind the physical
-    /// cutout.
+    /// Size the panel so the notch sits **centred-horizontally** and
+    /// **flush with the top edge** of the panel, with `glowPaddingSides`
+    /// of breathing room on each side and `glowPaddingBottom` below the
+    /// notch. That leaves enough transparent area for the blurred stroke
+    /// to draw the ambient glow without clipping at the panel edges.
     private func repositionPanel() {
         guard let panel = panel else { return }
         guard let screen = screenWithMouse()
@@ -157,11 +148,10 @@ class WaveformPanel: ObservableObject {
                         ?? NSScreen.screens.first else { return }
 
         let f = screen.frame
-        // visibleFrame.maxY < frame.maxY by the notch height on M-series
-        // (because the OS treats the notch as outside the safe area) or
-        // by the menu bar height on Macs without a notch.
         topInset = max(24, f.maxY - screen.visibleFrame.maxY)
-        panelWidth = Self.physicalNotchWidth(of: screen) ?? fallbackWidth
+        notchWidth = Self.physicalNotchWidth(of: screen) ?? fallbackWidth
+        panelWidth = notchWidth + glowPaddingSides * 2
+        panelHeight = topInset + glowPaddingBottom
 
         let x = f.midX - panelWidth / 2
         let y = f.maxY - panelHeight   // flush against the top edge
@@ -173,34 +163,19 @@ class WaveformPanel: ObservableObject {
     }
 
     /// Width of the MacBook camera notch on `screen`, or nil if this Mac
-    /// has no notch.
-    ///
-    /// macOS 12+ exposes `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` —
-    /// the menu-bar rectangles to the LEFT and RIGHT of the notch. The
-    /// gap between them is the notch itself:
-    ///
-    ///     | leftArea ◀--notch--▶ rightArea |
-    ///     0                                screen.width
-    ///
-    /// Both auxiliary areas return nil on Macs without a notch, which we
-    /// treat as "no notch" and let the caller fall back to a fixed width.
-    /// Measured widths on M-series MacBooks: 14"/16" Pro ≈ 187 pt,
-    /// Air 13"/15" ≈ 174 pt.
+    /// has no notch. macOS 12+ exposes `auxiliaryTopLeftArea` /
+    /// `auxiliaryTopRightArea` — the menu-bar rectangles to the LEFT and
+    /// RIGHT of the notch. The gap between them is the notch itself.
     private static func physicalNotchWidth(of screen: NSScreen) -> CGFloat? {
         guard let leftArea = screen.auxiliaryTopLeftArea,
               let rightArea = screen.auxiliaryTopRightArea else {
             return nil
         }
         let width = screen.frame.width - leftArea.width - rightArea.width
-        // Sanity: a real notch is wider than ~100 pt and narrower than
-        // ~300 pt. Anything outside that, treat as a measurement glitch.
         guard width > 100, width < 300 else { return nil }
         return width
     }
 
-    /// Screen currently containing the mouse cursor. For a menubar-only
-    /// app with no key window this beats `NSScreen.main`, which can drift
-    /// when foreground apps shuffle across displays.
     private func screenWithMouse() -> NSScreen? {
         let p = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) }

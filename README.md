@@ -25,7 +25,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.20.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.21.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **Launch** it. macOS will ask for two permissions:
    - **Microphone** — say yes, that's how it hears you.
@@ -53,16 +53,17 @@ That's it. No accounts, no API keys, nothing leaves your Mac.
 | Switch microphone | menu → **Microphone** |
 | Quit | menu → **Quit Murmur** (`⌘Q`) |
 
-While recording, a black pill drops out **from under the MacBook notch** (or
-from the top edge of the screen on Macs without a notch). It exactly matches
-the physical notch width, so visually it reads as the notch itself stretching
-downward — 11 round-tipped white bars inside it track your live audio levels.
+While recording, an **ambient light glow** wraps the perimeter of the
+MacBook notch — pink, white, yellow, cyan flowing left-to-right along the
+contour. The flow speed and the glow's brightness both scale with how loud
+you talk: paused = a slow shimmer barely-there, mid-sentence = a brisk
+stream, shouting = a bright wide halo. On Macs without a notch the same
+shape sits at the very top edge as a soft status indicator.
 
-When you stop, the bars **collapse in pairs from the edges inward** like a
-fast wave, leaving just one dot in the middle. The dot then pulses — springy
-expansion outward, calm easeOut back — until whisper finishes (typically
-1–3 seconds). Your text is pasted at the cursor and the pill retracts back
-into the notch.
+When you stop, the palette **morphs smoothly** to blue-and-white
+(`easeInOut`, 0.55s) and the flow settles to a steady moderate pace while
+whisper transcribes (typically 1–3 seconds). Your text is pasted at the
+cursor and the glow fades out.
 
 ## Features
 
@@ -76,16 +77,13 @@ into the notch.
 - **Microphone selector** — defaults to built-in mic; doesn't get confused by
   Bluetooth speakers or virtual devices
 - **Multi-monitor aware** — overlay always lands on the screen with your cursor
-- **Notch-style overlay** *(v3.19)* — a black pill flush with the top of the
-  screen, matched to the physical notch width via
-  `NSScreen.auxiliaryTopLeftArea/Right`. On notch-less Macs (Mac mini, Studio,
-  Air without notch) it falls back to a 200 pt centered pill that reads the
-  same way against the menu bar
-- **Reactive waveform + pulsing dot** *(v3.20)* — capsule bars with circle-
-  minimum (the quietest bars are perfect dots, never thin lines). On stop
-  the bars collapse pair-by-pair from the edges inward, then the centre
-  dot pulses with a springy bounce on expand, easeOut on contract, until
-  whisper finishes
+- **Ambient-light glow around the notch** *(new in v3.21)* — colours flow
+  left-to-right along the perimeter of the physical MacBook notch.
+  Brightness, thickness and flow speed all scale with your voice in real
+  time (sqrt-curve EMA, ~12× dynamic range from silence to peak). Smooth
+  morph between recording (pink/white/yellow/cyan) and transcribing
+  (blue/white) palettes — no jump-cuts. On notch-less Macs the same glow
+  contour sits at the top edge as a soft status indicator
 - **Auto-delete unused models** *(new in v3.9)* — any model you haven't dictated
   with for **3 days** is deleted from disk on next launch. Pick it later and it
   re-downloads through the same progress UI. Keeps experimental engines from
