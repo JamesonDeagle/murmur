@@ -98,6 +98,21 @@ struct MenuBarView: View {
                 }
             }
 
+            Menu(t("Language", ru: "Язык")) {
+                ForEach(TranscriptionLanguage.allCases) { lang in
+                    Button {
+                        appState.setTranscriptionLanguage(lang)
+                    } label: {
+                        if appState.transcriptionLanguage == lang {
+                            Label(lang.menuLabel, systemImage: "checkmark")
+                        } else {
+                            Text(lang.menuLabel)
+                        }
+                    }
+                    .disabled(!canEditSettings)
+                }
+            }
+
             Menu(t("Shortcut", ru: "Сочетание клавиш")) {
                 ForEach(HotkeyCombo.allCases) { combo in
                     Button {

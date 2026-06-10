@@ -17,7 +17,7 @@
 </p>
 
 > **Two whisper models, you pick in the Model menu.**
-> - **turbo** *(default, recommended)* — whisper-large-v3-turbo via whisper.cpp + Metal GPU. **Best transcription quality** based on our A/B tests on Russian dictation. ~1.5 GB, 1–2s per phrase. Russian by default (one line to switch).
+> - **turbo** *(default, recommended)* — whisper-large-v3-turbo via whisper.cpp + Metal GPU. **Best transcription quality** based on our A/B tests on Russian dictation. ~1.5 GB, 1–2s per phrase. Language follows your system locale; switch anytime in menu → Language.
 > - **large** — whisper.cpp + Metal, full large model (not turbo). ~3 GB, higher accuracy ceiling, slower.
 
 ## Quick start (60 seconds)
@@ -84,6 +84,7 @@ fix applies to most open-source Mac apps.
 | Cancel without transcribing | `Escape` |
 | Free RAM without quitting | menu → **Pause (free RAM)** |
 | Switch model (turbo / large) | menu → **Model** |
+| Switch language (8 languages) | menu → **Language** |
 | Switch microphone | menu → **Microphone** |
 | Change the shortcut | menu → **Shortcut** |
 | Quit | menu → **Quit Murmur** (`⌘Q`) |

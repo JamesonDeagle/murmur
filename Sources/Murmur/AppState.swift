@@ -83,6 +83,11 @@ class AppState: ObservableObject {
     /// changing it via `setHotkeyCombo` persists + re-registers the hotkey.
     @Published var hotkeyCombo: HotkeyCombo = .cmdShiftSpace
 
+    /// Transcription language (whisper needs it explicit — auto-detect is
+    /// broken in whisper.cpp 1.8.4). Defaults to the system locale when
+    /// supported, English otherwise; persisted across launches.
+    @Published var transcriptionLanguage: TranscriptionLanguage = .systemDefault
+
     /// Human-readable label for the active hotkey ("⌘⇧Space"), for the menu.
     var hotkeyLabel: String { hotkeyCombo.resolved.label }
 
@@ -118,6 +123,10 @@ class AppState: ObservableObject {
         hotkeyCombo = HotkeyCombo.resolve(UserDefaults.standard.string(forKey: "hotkeyCombo"))
         mlog("Hotkey combo: \(hotkeyCombo.rawValue) (\(hotkeyCombo.resolved.label))")
 
+        // Restore transcription language. Missing/unknown → system locale → en.
+        transcriptionLanguage = TranscriptionLanguage.resolve(UserDefaults.standard.string(forKey: "language"))
+        mlog("Transcription language: \(transcriptionLanguage.rawValue)")
+
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
             selectedInputDeviceUID = saved
@@ -137,7 +146,20 @@ class AppState: ObservableObject {
         }
         engine = kind.makeEngine()
         currentEngineKind = kind
-        mlog("prepareEngine: now using \(kind)")
+        await engine?.setLanguage(transcriptionLanguage.rawValue)
+        mlog("prepareEngine: now using \(kind), language \(transcriptionLanguage.rawValue)")
+    }
+
+    /// Change the transcription language: persist and push into the live
+    /// engine so the very next dictation uses it. Callable from the menu.
+    func setTranscriptionLanguage(_ lang: TranscriptionLanguage) {
+        guard lang != transcriptionLanguage else { return }
+        mlog("setTranscriptionLanguage: \(transcriptionLanguage.rawValue) -> \(lang.rawValue)")
+        transcriptionLanguage = lang
+        UserDefaults.standard.set(lang.rawValue, forKey: "language")
+        Task { [weak self] in
+            await self?.engine?.setLanguage(lang.rawValue)
+        }
     }
 
     private func progressForwarder() -> @Sendable (DownloadProgress) -> Void {

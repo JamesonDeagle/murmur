@@ -31,12 +31,80 @@ protocol SpeechEngine: Actor {
     /// "not downloaded" or "we can't safely delete this engine's cache" and
     /// the cleanup will skip the model.
     func cachedModelPaths(name: String) async -> [URL]
+
+    /// Set the transcription language (whisper code like "en"/"ru").
+    /// whisper.cpp 1.8.4's auto-detect is broken (detect_language=true yields
+    /// 0 segments), so the language is always explicit — picked by the user in
+    /// the Language menu, defaulting to the system locale.
+    func setLanguage(_ code: String) async
 }
 
 extension SpeechEngine {
     /// Default: this engine doesn't expose its cache layout, skip cleanup.
     /// Concrete engines override when they know their cache location.
     func cachedModelPaths(name: String) async -> [URL] { [] }
+
+    /// Default: engine has no language knob (e.g. auto-detecting backends).
+    func setLanguage(_ code: String) async {}
+}
+
+// MARK: - Transcription languages
+
+/// User-selectable transcription languages. whisper.cpp needs an explicit
+/// language (auto-detect is broken in 1.8.4 — see WhisperEngine), so we ship
+/// a curated list. The default follows the system locale when supported,
+/// otherwise English — an App Review machine running English macOS gets
+/// English out of the box, a Russian user gets Russian.
+enum TranscriptionLanguage: String, CaseIterable, Sendable, Identifiable {
+    case en, ru, de, es, fr, it, pt, uk
+
+    var id: String { rawValue }
+
+    /// Native-script label for the Language menu.
+    var menuLabel: String {
+        switch self {
+        case .en: return "English"
+        case .ru: return "Русский"
+        case .de: return "Deutsch"
+        case .es: return "Español"
+        case .fr: return "Français"
+        case .it: return "Italiano"
+        case .pt: return "Português"
+        case .uk: return "Українська"
+        }
+    }
+
+    /// Style-guide prompt fed to whisper as `initial_prompt` — nudges the
+    /// decoder toward proper punctuation in the target language.
+    var initialPrompt: String {
+        switch self {
+        case .en: return "Hello. Here is what I wanted to say: first, we review the plan; then, we ship it."
+        case .ru: return "Здравствуйте. Вот, что я хотел сказать: Hello, my name is Anton."
+        case .de: return "Hallo. Folgendes wollte ich sagen: zuerst der Plan, dann die Umsetzung."
+        case .es: return "Hola. Esto es lo que quería decir: primero el plan, luego la entrega."
+        case .fr: return "Bonjour. Voici ce que je voulais dire : d'abord le plan, ensuite la livraison."
+        case .it: return "Ciao. Ecco cosa volevo dire: prima il piano, poi la consegna."
+        case .pt: return "Olá. Aqui está o que eu queria dizer: primeiro o plano, depois a entrega."
+        case .uk: return "Добрий день. Ось що я хотів сказати: спочатку план, потім реліз."
+        }
+    }
+
+    /// Map a stored raw value back to a language; unknown/missing falls back
+    /// to the system locale (if we support it), then English.
+    static func resolve(_ raw: String?) -> TranscriptionLanguage {
+        if let raw, let lang = TranscriptionLanguage(rawValue: raw) { return lang }
+        return systemDefault
+    }
+
+    /// Best match for `Locale.preferredLanguages.first` among supported codes.
+    static var systemDefault: TranscriptionLanguage {
+        guard let preferred = Locale.preferredLanguages.first?.lowercased(),
+              let code = preferred.split(separator: "-").first,
+              let lang = TranscriptionLanguage(rawValue: String(code)) else {
+            return .en
+        }
+        return lang
+    }
 }
 
 // MARK: - Download progress
@@ -87,11 +155,11 @@ struct DownloadProgress: Sendable, Equatable {
 enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     /// whisper-large-v3-turbo via whisper.cpp + Metal — best transcription
     /// quality on Russian audio in our tests. ~1.5 GB on disk, 1–2s per phrase.
-    /// **Default for new installs.** Russian-only by default
-    /// (whisper.cpp 1.8.4 detect_language bug).
+    /// **Default for new installs.** Language is explicit (whisper.cpp 1.8.4
+    /// detect_language bug) — picked in the Language menu, defaults to locale.
     case whisperTurbo = "turbo"
     /// whisper-large-v3 via whisper.cpp + Metal — full large model, ~3 GB,
-    /// Russian-only by default. Slower than turbo but higher accuracy ceiling.
+    /// Same explicit-language behavior. Slower than turbo, higher accuracy ceiling.
     case whisperLarge = "large"
 
     var id: String { rawValue }
@@ -120,11 +188,11 @@ enum SpeechModelOption: String, CaseIterable, Sendable, Identifiable {
     var menuLabel: String {
         switch self {
         case .whisperTurbo:
-            return t("whisper-large-v3-turbo  ·  1.5 GB  ·  Russian  ·  recommended",
-                  ru: "whisper-large-v3-turbo  ·  1,5 ГБ  ·  русский  ·  рекомендуется")
+            return t("whisper-large-v3-turbo  ·  1.5 GB  ·  multilingual  ·  recommended",
+                  ru: "whisper-large-v3-turbo  ·  1,5 ГБ  ·  многоязычная  ·  рекомендуется")
         case .whisperLarge:
-            return t("whisper-large-v3  ·  3.0 GB  ·  Russian",
-                  ru: "whisper-large-v3  ·  3,0 ГБ  ·  русский")
+            return t("whisper-large-v3  ·  3.0 GB  ·  multilingual",
+                  ru: "whisper-large-v3  ·  3,0 ГБ  ·  многоязычная")
         }
     }
 

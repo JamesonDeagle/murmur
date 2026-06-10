@@ -11,10 +11,21 @@ actor WhisperEngine: SpeechEngine {
     private var ctx: OpaquePointer?
     private let modelsDir: URL
 
+    /// Transcription language. whisper.cpp 1.8.4 can't auto-detect (the
+    /// detect_language path yields 0 segments), so an explicit code is always
+    /// set — AppState pushes the user's pick here after loadModel and on
+    /// every change in the Language menu.
+    private var language: TranscriptionLanguage = .systemDefault
+
     private let models: [String: String] = [
         "turbo": "ggml-large-v3-turbo.bin",
         "large": "ggml-large-v3.bin",
     ]
+
+    func setLanguage(_ code: String) async {
+        language = TranscriptionLanguage.resolve(code)
+        mlog("WhisperEngine: language set to \(language.rawValue)")
+    }
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -94,12 +105,13 @@ actor WhisperEngine: SpeechEngine {
         params.suppress_blank = false
 
         // Bug in whisper.cpp 1.8.4: detect_language=true + language="auto" produces 0 segments
-        // Use explicit language instead
-        let langStr = strdup("ru")
+        // Use the explicit user-picked language instead (Language menu,
+        // defaults to the system locale).
+        let langStr = strdup(language.rawValue)
         params.language = UnsafePointer(langStr)
         params.detect_language = false
 
-        let promptStr = strdup("Здравствуйте. Вот, что я хотел сказать: Hello, my name is Anton.")
+        let promptStr = strdup(language.initialPrompt)
         params.initial_prompt = UnsafePointer(promptStr)
 
         mlog("whisper_full starting with \(samples.count) samples...")
