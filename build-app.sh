@@ -4,33 +4,18 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="Murmur.app"
-BUILD_DIR=".build/xcode"
-PRODUCTS_DIR="$BUILD_DIR/Build/Products/Release"
 
-# We build through `xcodebuild` (not `swift build`) so that mlx-swift's Metal
-# shaders get compiled into a real .metallib. CLI `swift build` doesn't
-# invoke the Metal toolchain, which makes any MLX-backed model (Voxtral,
-# Qwen3) crash at load with "Failed to load the default metallib".
-# Metal toolchain is now a separate Xcode component; if you've never built
-# Metal code on this machine run once:
-#   xcodebuild -downloadComponent MetalToolchain
-#
-# ARCHS=arm64: whisper.cpp's static libs in lib/ are arm64 only; without
-# pinning the architecture xcodebuild tries a universal x86_64+arm64 build
-# and the link step fails on missing whisper symbols for x86_64.
+# Plain SPM release build. After the whisper-only strip there are no MLX
+# dependencies left, so we no longer need xcodebuild to compile a Metal
+# metallib (whisper.cpp's Metal shaders are pre-compiled into the static
+# libs in lib/ via lib/ggml-metal-embed.metal). swift build is faster and
+# matches what build-mas.sh does.
+echo "Building Murmur via swift build..."
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
 
-echo "Building Murmur via xcodebuild..."
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
-    -scheme Murmur \
-    -configuration Release \
-    -destination 'generic/platform=macOS' \
-    -derivedDataPath "$BUILD_DIR" \
-    ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=YES \
-    -quiet
-
-if [ ! -f "$PRODUCTS_DIR/Murmur" ]; then
-    echo "ERROR: build succeeded but no Murmur binary at $PRODUCTS_DIR/Murmur"
+BIN=".build/release/Murmur"
+if [ ! -f "$BIN" ]; then
+    echo "ERROR: build succeeded but no Murmur binary at $BIN"
     exit 1
 fi
 
@@ -38,23 +23,14 @@ echo "Creating app bundle..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$PRODUCTS_DIR/Murmur" "$APP/Contents/MacOS/"
-cp Info.plist "$APP/Contents/"
-cp Assets/AppIcon.icns "$APP/Contents/Resources/"
-
-# Copy every SPM resource bundle (*.bundle) into the .app's Resources.
-# MLX runtime searches NS::Bundle::allBundles() looking for default.metallib,
-# so as long as mlx-swift_Cmlx.bundle ends up under Contents/Resources/ it
-# gets found at first use. Other dependencies (swift-transformers, etc.)
-# may also ship bundles; copying them all keeps everything self-contained.
-BUNDLE_COUNT=0
-for bundle in "$PRODUCTS_DIR"/*.bundle; do
-    if [ -d "$bundle" ]; then
-        cp -R "$bundle" "$APP/Contents/Resources/"
-        BUNDLE_COUNT=$((BUNDLE_COUNT + 1))
-    fi
-done
-echo "Bundled $BUNDLE_COUNT SPM resource bundles"
+cp "$BIN"                          "$APP/Contents/MacOS/"
+cp Info.plist                      "$APP/Contents/"
+cp Assets/AppIcon.icns             "$APP/Contents/Resources/"
+cp Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
+# License + third-party attribution (whisper.cpp / ggml are MIT — their
+# notices ship next to the binary that statically links them).
+cp LICENSE                         "$APP/Contents/Resources/"
+cp THIRD-PARTY-LICENSES.md         "$APP/Contents/Resources/"
 
 # Code-signing strategy depends on what the build is for.
 #
@@ -69,15 +45,14 @@ echo "Bundled $BUNDLE_COUNT SPM resource bundles"
 # users know the workflow.
 #
 # (no env var, default) → sign with whatever real identity is available
-# (Apple Development), so Accessibility permission persists across local
-# rebuilds. --deep is required because of nested .bundle resources
-# (default.metallib inside mlx-swift_Cmlx.bundle).
+# (Apple Development), so Accessibility / post-event permission persists
+# across local rebuilds.
 #
-# Proper Developer-ID-Application + notarization would remove the prompt
-# entirely, but that needs a paid Apple Developer Program membership.
+# This is the GitHub/DMG path. The Mac App Store build goes through
+# build-mas.sh (3rd Party Mac Developer certs + entitlements + .pkg).
 if [ "${MURMUR_RELEASE:-0}" = "1" ]; then
     echo "Signing ad-hoc (RELEASE build for GitHub distribution)"
-    codesign --force --deep --sign - "$APP"
+    codesign --force --sign - "$APP"
     # Strip any quarantine attribute the build process may have picked
     # up — the DMG we ship should be as clean as we can make it. Mac
     # users will still get a quarantine attr from their browser on
@@ -87,10 +62,10 @@ else
     IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | head -1 | sed 's/.*"\(.*\)".*/\1/')
     if [ -n "$IDENTITY" ]; then
         echo "Signing with: $IDENTITY  (dev build — set MURMUR_RELEASE=1 for ad-hoc)"
-        codesign --force --deep --sign "$IDENTITY" "$APP"
+        codesign --force --sign "$IDENTITY" "$APP"
     else
-        echo "Warning: No signing identity found. Accessibility permission will reset on each rebuild."
-        codesign --force --deep --sign - "$APP"
+        echo "Warning: No signing identity found. Permissions will reset on each rebuild."
+        codesign --force --sign - "$APP"
     fi
 fi
 

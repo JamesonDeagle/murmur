@@ -12,7 +12,6 @@ class AudioRecorder {
     private let numBars = 11
     private let barWeights: [Float] = [0.3, 0.5, 0.7, 0.85, 0.95, 1.0, 0.95, 0.85, 0.7, 0.5, 0.3]
     private let lock = NSLock()
-    private var previousDefaultDevice: AudioDeviceID = 0
 
     func start(deviceID: AudioDeviceID? = nil, onLevels: @escaping ([Float]) -> Void) {
         lock.lock()
@@ -23,18 +22,36 @@ class AudioRecorder {
         engine = AVAudioEngine()
         guard let engine = engine else { return }
 
-        // Set system default input device temporarily if a specific device is requested
-        var previousDefaultDevice: AudioDeviceID = 0
-        if let deviceID = deviceID {
-            previousDefaultDevice = Self.getDefaultInputDevice()
-            if deviceID != previousDefaultDevice {
-                Self.setDefaultInputDevice(deviceID)
-                mlog("AudioRecorder: switched system input to device \(deviceID)")
-            }
-        }
-        self.previousDefaultDevice = previousDefaultDevice
-
         let inputNode = engine.inputNode
+
+        // Point THIS engine's input at the requested device, without touching
+        // the system-wide default input (which would be a sandbox violation —
+        // modifying a system preference is not covered by the audio-input
+        // entitlement and gets the app rejected in App Review).
+        //
+        // Order is load-bearing: the device must be set on the input node's
+        // audio unit BEFORE we query its output format or install the tap, or
+        // we read the format of the wrong (old default) device. On any failure
+        // we log and fall through to the system default — never crash.
+        if let deviceID = deviceID, let au = inputNode.audioUnit {
+            var dev = deviceID
+            let st = AudioUnitSetProperty(
+                au,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &dev,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            if st == noErr {
+                mlog("AudioRecorder: input node bound to device \(deviceID)")
+            } else {
+                mlog("AudioRecorder: AudioUnitSetProperty(CurrentDevice) failed (\(st)) — using system default")
+            }
+        } else if deviceID != nil {
+            mlog("AudioRecorder: inputNode.audioUnit is nil — using system default")
+        }
+
         let nativeFormat = inputNode.outputFormat(forBus: 0)
         nativeSampleRate = nativeFormat.sampleRate
         mlog("AudioRecorder: native format sr=\(nativeFormat.sampleRate) ch=\(nativeFormat.channelCount)")
@@ -76,16 +93,6 @@ class AudioRecorder {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-
-        // Restore previous default input device
-        if previousDefaultDevice != 0 {
-            let current = Self.getDefaultInputDevice()
-            if current != previousDefaultDevice {
-                Self.setDefaultInputDevice(previousDefaultDevice)
-                mlog("AudioRecorder: restored system input to device \(previousDefaultDevice)")
-            }
-            previousDefaultDevice = 0
-        }
 
         lock.lock()
         levelsCallback = nil
@@ -138,29 +145,5 @@ class AudioRecorder {
         mlog("AudioRecorder: final output=\(output.count) samples, max=\(finalMax), rms=\(finalRms)")
 
         return output
-    }
-
-    // MARK: - System Default Input Device
-
-    static func getDefaultInputDevice() -> AudioDeviceID {
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var deviceID: AudioDeviceID = 0
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
-        return deviceID
-    }
-
-    static func setDefaultInputDevice(_ deviceID: AudioDeviceID) {
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var devID = deviceID
-        AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, UInt32(MemoryLayout<AudioDeviceID>.size), &devID)
     }
 }

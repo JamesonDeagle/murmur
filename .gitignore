@@ -8,3 +8,7 @@ DerivedData/
 .netrc
 Murmur.app/
 *.dmg
+.playwright-mcp/
+# Internal Mac App Store submission prep / handoff package — shared with the
+# release engineer directly, kept out of the public repo.
+mas-submission/

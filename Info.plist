@@ -7,17 +7,19 @@
     <key>CFBundleDisplayName</key>
     <string>Murmur</string>
     <key>CFBundleIdentifier</key>
-    <string>com.murmur.app</string>
+    <string>com.deagle.murmur</string>
     <key>CFBundleVersion</key>
-    <string>3.21</string>
+    <string>3.22.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.21</string>
+    <string>3.22</string>
     <key>CFBundleExecutable</key>
     <string>Murmur</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
     <key>LSUIElement</key>
     <true/>
     <key>LSMinimumSystemVersion</key>
@@ -26,5 +28,9 @@
     <string>Murmur needs microphone access to transcribe your speech to text.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Jameson Deagle. MIT License.</string>
 </dict>
 </plist>

@@ -22,11 +22,6 @@ func mlog(_ msg: String) {
     }
 }
 
-private nonisolated func checkAccessibility() -> Bool {
-    let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-    return AXIsProcessTrustedWithOptions(opts)
-}
-
 enum RecordingState {
     case idle
     case loading
@@ -35,14 +30,47 @@ enum RecordingState {
     case paused          // model intentionally unloaded — free RAM and GPU memory
 }
 
+/// User-selectable global hotkey presets.
+///
+/// macOS 15+ rejects `RegisterEventHotKey` for combos whose only modifiers are
+/// Option and/or Shift (error -9868, FB15168205), so every preset is anchored
+/// on Cmd or Control. We deliberately avoid Control+Option+Space — that's the
+/// system shortcut for switching the input source / keyboard layout.
+enum HotkeyCombo: String, CaseIterable, Sendable, Identifiable {
+    case cmdShiftSpace   // ⌘⇧Space — default
+    case ctrlShiftSpace  // ⌃⇧Space
+    case cmdShiftD       // ⌘⇧D
+
+    var id: String { rawValue }
+
+    /// Carbon modifier mask, virtual key code, and the label shown in the UI.
+    var resolved: (modifiers: UInt32, keyCode: UInt32, label: String) {
+        switch self {
+        case .cmdShiftSpace:
+            return (UInt32(cmdKey | shiftKey), 49, "⌘⇧Space")
+        case .ctrlShiftSpace:
+            return (UInt32(controlKey | shiftKey), 49, "⌃⇧Space")
+        case .cmdShiftD:
+            return (UInt32(cmdKey | shiftKey), 2, "⌘⇧D")  // keyCode 2 = D
+        }
+    }
+
+    /// Map a stored UserDefaults raw value back to a preset, defaulting to
+    /// `.cmdShiftSpace` for anything unrecognized (forward-compat / corruption).
+    static func resolve(_ raw: String?) -> HotkeyCombo {
+        guard let raw, let combo = HotkeyCombo(rawValue: raw) else { return .cmdShiftSpace }
+        return combo
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var state: RecordingState = .loading
     /// Default for fresh installs is whisper-turbo — after A/B testing all
-    /// six engines on real Russian dictation in v3.10, whisper-large-v3-turbo
-    /// via whisper.cpp + Metal gave the best transcription quality.
+    /// engines on real Russian dictation, whisper-large-v3-turbo via
+    /// whisper.cpp + Metal gave the best transcription quality.
     /// Existing users keep whatever they picked previously via the
     /// UserDefaults restore in init().
     @Published var activeModel: SpeechModelOption = .whisperTurbo
@@ -51,10 +79,16 @@ class AppState: ObservableObject {
     /// the model is loaded and ready to transcribe.
     @Published var downloadProgress: DownloadProgress?
 
-    /// Current speech engine. Swapped out when the user switches between a
-    /// whisper variant and Parakeet — both wrap heavy native resources
-    /// (Metal context vs. ANE-resident Core ML models) and can't coexist
-    /// usefully in this menubar app's memory budget.
+    /// Active global hotkey preset. Restored from UserDefaults in init();
+    /// changing it via `setHotkeyCombo` persists + re-registers the hotkey.
+    @Published var hotkeyCombo: HotkeyCombo = .cmdShiftSpace
+
+    /// Human-readable label for the active hotkey ("⌘⇧Space"), for the menu.
+    var hotkeyLabel: String { hotkeyCombo.resolved.label }
+
+    /// Current speech engine. Only whisper.cpp ships today; the engine is held
+    /// behind `any SpeechEngine` + `EngineKind` so re-introducing extra
+    /// backends later (Parakeet, MLX) stays an additive change.
     var engine: (any SpeechEngine)?
     /// Tracks which backend the current `engine` is so we know when to
     /// rebuild on switch.
@@ -68,14 +102,21 @@ class AppState: ObservableObject {
 
     init() {
         mlog("AppState init")
-        // Restore last-used model. Old builds (≤ v3.3) stored "turbo" / "large"
-        // — same raw values as the new SpeechModelOption enum, so they migrate
-        // for free. Anything we don't recognize falls back to turbo.
+        // Restore last-used model. "turbo" / "large" migrate for free (same
+        // raw values). Anything we don't recognize falls back to turbo —
+        // including users who previously picked one of the now-removed engines
+        // ("parakeet" / "voxtral" / "qwen3"): SpeechModelOption(rawValue:)
+        // returns nil for those and we keep the default. That's the intended
+        // behavior for this whisper-only build.
         if let saved = UserDefaults.standard.string(forKey: "activeModel"),
            let restored = SpeechModelOption(rawValue: saved) {
             activeModel = restored
         }
         mlog("Active model: \(activeModel.rawValue)")
+
+        // Restore saved hotkey preset. Unknown / missing → ⌘⇧Space default.
+        hotkeyCombo = HotkeyCombo.resolve(UserDefaults.standard.string(forKey: "hotkeyCombo"))
+        mlog("Hotkey combo: \(hotkeyCombo.rawValue) (\(hotkeyCombo.resolved.label))")
 
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
@@ -112,9 +153,9 @@ class AppState: ObservableObject {
     /// How long an unused on-disk model survives before being auto-deleted.
     /// User request: "if I haven't used a model in 3 days, delete it".
     /// Storage cost of speech models is significant (whisper-large is ~3 GB,
-    /// Voxtral ~2 GB, Qwen3 ~3.4 GB) and most users only use one or two
-    /// actively. Auto-purge keeps disk usage in check; if the user picks a
-    /// purged model later, it just re-downloads via the normal load path.
+    /// turbo ~1.5 GB) and most users only use one actively. Auto-purge keeps
+    /// disk usage in check; if the user picks a purged model later, it just
+    /// re-downloads via the normal load path.
     private static let modelCacheTTL: TimeInterval = 3 * 24 * 60 * 60
 
     private static let lastUsedDefaultsKey = "modelLastUsed"   // [String: Date] JSON
@@ -198,10 +239,10 @@ class AppState: ObservableObject {
         mlog("Input device changed to: \(device.name) (\(device.uid))")
     }
 
-    /// Switch active model. Handles both same-engine variant changes
-    /// (turbo↔large within WhisperEngine) and cross-engine switches
-    /// (whisper↔parakeet), the latter destroys the old engine actor.
-    /// Holds `state = .loading` for the full duration so:
+    /// Switch active model. Today both options live in the same WhisperEngine
+    /// actor (turbo↔large), so `prepareEngine` keeps the actor and only the
+    /// `.bin` reloads. The cross-engine swap path is retained for when extra
+    /// backends return. Holds `state = .loading` for the full duration so:
     ///   - Option+Space is ignored (`case .loading` in toggle()).
     ///   - Menu items disabled-on-non-idle stay disabled.
     ///   - Menu shows progress lines instead of the idle hint.
@@ -252,6 +293,29 @@ class AppState: ObservableObject {
         mlog("resumeModel: done, ready")
     }
 
+    // MARK: - Hotkey
+
+    /// Change the active global hotkey: persist the choice and re-register so
+    /// it takes effect immediately. Callable from the menu's Shortcut submenu.
+    func setHotkeyCombo(_ combo: HotkeyCombo) {
+        guard combo != hotkeyCombo else { return }
+        mlog("setHotkeyCombo: \(hotkeyCombo.rawValue) -> \(combo.rawValue)")
+        hotkeyCombo = combo
+        UserDefaults.standard.set(combo.rawValue, forKey: "hotkeyCombo")
+        registerHotkey()
+    }
+
+    /// (Re)register the global hotkey from the current `hotkeyCombo`.
+    private func registerHotkey() {
+        let r = hotkeyCombo.resolved
+        HotkeyManager.shared.register(modifiers: r.modifiers, keyCode: r.keyCode) { [weak self] in
+            Task { @MainActor in
+                await self?.toggle()
+            }
+        }
+        mlog("registerHotkey: \(r.label)")
+    }
+
     func startSetup() {
         guard !setupStarted else { return }
         setupStarted = true
@@ -272,22 +336,14 @@ class AppState: ObservableObject {
             mlog("WARNING: Mic permission NOT authorized!")
         }
 
-        // Check Accessibility permission (required for Cmd+V paste simulation)
-        let axTrusted = checkAccessibility()
-        mlog("Accessibility permission: \(axTrusted)")
-        if !axTrusted {
-            mlog("WARNING: Accessibility NOT granted — text paste will not work")
-        }
+        // Check "post events" permission (required for Cmd+V paste simulation).
+        // Under App Sandbox this is the sandbox-compatible alternative to full
+        // Accessibility (which the sandbox forbids). Prompts on first run.
+        let postEventGranted = TextPaster.ensurePermission()
+        mlog("setup: PostEvent permission = \(postEventGranted)")
 
-        // Register global hotkey: Option+Space
-        HotkeyManager.shared.register(
-            modifiers: UInt32(optionKey),
-            keyCode: 49 // Space
-        ) { [weak self] in
-            Task { @MainActor in
-                await self?.toggle()
-            }
-        }
+        // Register the global hotkey from the saved preset (default ⌘⇧Space).
+        registerHotkey()
 
         // Escape cancels an in-progress recording. We need TWO monitors
         // because users dictate to insert text into OTHER apps — so the

@@ -24,7 +24,9 @@ struct MenuBarView: View {
                         Text("\(p.fractionPercent)% · \(formatSpeed(p.bytesPerSecond))\(formatETA(p.etaSeconds))")
                             .disabled(true)
                     } else {
-                        // Parakeet/FluidAudio: fraction + phase only (no byte counts).
+                        // Fraction-only fallback: phase + percent, no byte counts.
+                        // whisper always reports bytes, so this branch is dead
+                        // today — kept for a future fraction-only engine.
                         Label(
                             "\(p.phase) \(p.modelName)",
                             systemImage: "arrow.down.circle"
@@ -41,8 +43,8 @@ struct MenuBarView: View {
                         .disabled(true)
                 }
             case .idle:
-                Text(t("Option+Space — record / stop",
-                     ru: "Option+Space — запись / стоп"))
+                Text(t("\(appState.hotkeyLabel) — record / stop",
+                     ru: "\(appState.hotkeyLabel) — запись / стоп"))
                     .disabled(true)
                 Text(t("Escape — cancel",
                      ru: "Escape — отмена"))
@@ -90,6 +92,21 @@ struct MenuBarView: View {
                             Label(device.name, systemImage: "checkmark")
                         } else {
                             Text(device.name)
+                        }
+                    }
+                    .disabled(!canEditSettings)
+                }
+            }
+
+            Menu(t("Shortcut", ru: "Сочетание клавиш")) {
+                ForEach(HotkeyCombo.allCases) { combo in
+                    Button {
+                        appState.setHotkeyCombo(combo)
+                    } label: {
+                        if appState.hotkeyCombo == combo {
+                            Label(combo.resolved.label, systemImage: "checkmark")
+                        } else {
+                            Text(combo.resolved.label)
                         }
                     }
                     .disabled(!canEditSettings)

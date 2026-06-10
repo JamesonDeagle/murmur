@@ -6,7 +6,7 @@
 
 <p align="center">
   Native macOS menubar speech-to-text. 100% local on Apple Silicon.<br>
-  <b>Press Option+Space, talk, press again — text appears wherever your cursor is.</b>
+  <b>Press Cmd+Shift+Space, talk, press again — text appears wherever your cursor is.</b>
 </p>
 
 <p align="center">
@@ -16,12 +16,9 @@
   <img src="https://img.shields.io/badge/whisper.cpp-Metal_GPU-orange" alt="whisper.cpp">
 </p>
 
-> **Five speech engines, you pick in the Model menu.**
+> **Two whisper models, you pick in the Model menu.**
 > - **turbo** *(default, recommended)* — whisper-large-v3-turbo via whisper.cpp + Metal GPU. **Best transcription quality** based on our A/B tests on Russian dictation. ~1.5 GB, 1–2s per phrase. Russian by default (one line to switch).
-> - **parakeet** — NVIDIA Parakeet TDT v3 on Apple Neural Engine. Lightest option, 25 EU + JP + ZH with auto-detect. ~600 MB, ~66 MB working memory, ~110× real-time. Pick this when whisper is overkill.
 > - **large** — whisper.cpp + Metal, full large model (not turbo). ~3 GB, higher accuracy ceiling, slower.
-> - **voxtral** *(experimental)* — Voxtral Mini 4B Realtime (Mistral AI) via MLX. ~2 GB. Runs on Apple Silicon GPU.
-> - **qwen3** *(experimental)* — Qwen3-ASR-1.7B (Alibaba) via MLX. **52 languages including Russian + Ukrainian**. ~3.4 GB.
 
 ## Quick start (60 seconds)
 
@@ -58,7 +55,7 @@
    ⬇ Loading turbo: 245 MB / 1,53 GB
    16% · 12,4 MB/s · ETA 1m32s
    ```
-6. **Done.** Click into any text field, press **Option+Space**, talk, press
+6. **Done.** Click into any text field, press **Cmd+Shift+Space**, talk, press
    again. Your words appear at the cursor.
 
 That's it. No accounts, no API keys, nothing leaves your Mac.
@@ -82,12 +79,13 @@ fix applies to most open-source Mac apps.
 
 | Action | How |
 |---|---|
-| Start recording | `Option+Space` |
-| Stop & paste text | `Option+Space` again |
+| Start recording | `Cmd+Shift+Space` |
+| Stop & paste text | `Cmd+Shift+Space` again |
 | Cancel without transcribing | `Escape` |
 | Free RAM without quitting | menu → **Pause (free RAM)** |
 | Switch model (turbo / large) | menu → **Model** |
 | Switch microphone | menu → **Microphone** |
+| Change the shortcut | menu → **Shortcut** |
 | Quit | menu → **Quit Murmur** (`⌘Q`) |
 
 While recording, an **ambient light glow** wraps the perimeter of the
@@ -109,6 +107,8 @@ cursor and the glow fades out.
 - **Works everywhere** — Mail, Slack, Telegram, Xcode, Terminal, browsers, Notes
 - **Two models** — turbo (fast, default) or large (best quality), persisted
   across launches with download progress, speed, and ETA in the menu
+- **Configurable shortcut** — pick ⌘⇧Space (default), ⌃⇧Space, or ⌘⇧D in
+  menu → **Shortcut**; the choice persists across launches
 - **Pause / Resume** — free 1.5–3 GB of RAM and Metal GPU memory without
   quitting the app
 - **Microphone selector** — defaults to built-in mic; doesn't get confused by
@@ -123,8 +123,8 @@ cursor and the glow fades out.
   contour sits at the top edge as a soft status indicator
 - **Auto-delete unused models** *(new in v3.9)* — any model you haven't dictated
   with for **3 days** is deleted from disk on next launch. Pick it later and it
-  re-downloads through the same progress UI. Keeps experimental engines from
-  silently squatting ~6 GB.
+  re-downloads through the same progress UI. Keeps an unused large model from
+  silently squatting ~3 GB.
 - **Paste + clipboard fallback** *(v3.12)* — Murmur puts the transcribed text
   on the clipboard and simulates Cmd+V. If you forgot to click into a text
   field first, the paste silently fails, but the text stays on the clipboard
@@ -139,16 +139,23 @@ cursor and the glow fades out.
 2. Click the icon. If you see `Loading model...` or download progress —
    wait for it to finish.
 3. If you see `⏸ Paused — model unloaded` — click **Resume**.
-4. If another app is using `Option+Space`, change one of them.
+4. If another app is using `Cmd+Shift+Space`, change one of them — or pick a
+   different combo in menu → **Shortcut**.
 
 ### Recording starts, but nothing gets pasted
 
-Almost always **Accessibility** permission. macOS doesn't always re-prompt:
+Almost always the **post-events / Accessibility** permission Murmur needs to
+type the text into other apps via simulated Cmd+V. macOS doesn't always
+re-prompt:
 
-1. **System Settings → Privacy & Security → Accessibility**
+1. **System Settings → Privacy & Security → Accessibility** (on App Store
+   builds this may appear under **Input Monitoring**).
 2. Toggle **Murmur** ON. If it isn't in the list, click **+** and add
    `/Applications/Murmur.app`.
 3. Quit and relaunch Murmur from the menu.
+
+Either way, the transcribed text is always left on the clipboard, so you can
+paste it manually with Cmd+V if the automatic paste didn't land.
 
 ### Microphone error or no audio detected
 
@@ -168,26 +175,18 @@ to the OS. Click **Resume** to reload (a few seconds for warmup, no re-download)
 |---|---|---|
 | turbo | ~1.5 GB | CPU + Metal GPU |
 | large | ~3 GB | CPU + Metal GPU |
-| parakeet | ~66 MB | Apple Neural Engine (ANE) |
-
-Parakeet is ~25× lighter on memory because Core ML keeps it resident on the
-ANE instead of the GPU — pause is rarely needed if you stick with Parakeet.
 
 ### I want better transcription quality
 
 - **Russian audio**: try **large** (whisper). Bigger model, ~3 GB on disk,
   3–5 s per phrase, better on accents, names, mixed-language content.
-- **Other languages** (English, French, German, …): switch to **parakeet** —
-  it auto-detects the language and was trained on multilingual data.
 
 Set in: menu → **Model**. Persists across launches.
 
 ### Switching languages
 
-- **Use parakeet** (recommended): switch in menu → **Model → parakeet**. It
-  auto-detects across 25 European languages + Japanese + Chinese — no code
-  change needed.
-- **Or, stick with whisper but change the hardcoded language**:
+Murmur is hardcoded to Russian. To change it:
+
   1. Open `Sources/Murmur/WhisperEngine.swift`.
   2. Find `let langStr = strdup("ru")` near the bottom of `transcribeRaw`.
   3. Change `"ru"` to `"en"`, `"de"`, `"es"`, etc. (any [whisper.cpp language
@@ -195,7 +194,7 @@ Set in: menu → **Model**. Persists across launches.
   4. Rebuild: `./build-app.sh`.
 
   Why hardcode? whisper.cpp 1.8.4 has a bug in automatic language detection
-  that returns zero text. Parakeet has its own detector that works.
+  that returns zero text, so the language has to be set explicitly.
 
 You can also adjust `params.initial_prompt` to bias whisper toward your style
 of punctuation and vocabulary.
@@ -227,14 +226,11 @@ remembered across launches.
 | Model | Engine | Size on disk | Working memory | Speed | Languages | When to use |
 |---|---|---|---|---|---|---|
 | **turbo** *(default)* | whisper.cpp (Metal GPU) | ~1.5 GB | ~1.5 GB | 1–2 s | Russian (hardcoded) | Default for fresh installs. Best transcription quality in our A/B tests on Russian dictation. |
-| **parakeet** | FluidAudio / Core ML (ANE) | ~600 MB | **~66 MB** | < 1 s | **25 EU + JP + ZH, auto** | Lightest option. Multilingual, frees the Metal GPU, lowest memory footprint. |
 | **large** | whisper.cpp (Metal GPU) | ~3 GB | ~3 GB | 3–5 s | Russian (hardcoded) | Full whisper-large-v3 model. Slower but higher accuracy ceiling than turbo. |
 
 Storage:
 - whisper models: `~/Library/Application Support/Murmur/models/` (downloaded
   from [ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp))
-- parakeet: FluidAudio cache (downloaded from
-  [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml))
 
 ---
 
@@ -246,15 +242,7 @@ Storage:
 framework). If `xcode-select -p` points at `/Library/Developer/CommandLineTools`,
 fix it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 
-**Metal Toolchain required.** mlx-swift compiles `default.metallib` from
-its kernels, which needs the Metal Toolchain — a separate Xcode component
-not installed by default. Run once:
-
-```bash
-xcodebuild -downloadComponent MetalToolchain
-```
-
-Then build:
+Build:
 
 ```bash
 git clone https://github.com/JamesonDeagle/murmur.git
@@ -263,11 +251,10 @@ cd murmur
 open /Applications/Murmur.app
 ```
 
-`build-app.sh` runs `xcodebuild build -scheme Murmur -configuration Release
-ARCHS=arm64`, assembles the `.app` bundle (including SPM resource bundles
-like `mlx-swift_Cmlx.bundle` so MLX can find its metallib at runtime),
-code-signs with your developer identity (so Accessibility permission
-survives rebuilds), and copies into `/Applications/`.
+`build-app.sh` runs `swift build -c release`, assembles the `.app` bundle
+(binary + `Info.plist` + icon + `PrivacyInfo.xcprivacy` + `LICENSE` +
+`THIRD-PARTY-LICENSES.md`), code-signs with your developer identity (so the
+paste permission survives rebuilds), and copies into `/Applications/`.
 
 Plain SPM build (no bundle):
 
@@ -276,19 +263,21 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
 swift test
 ```
 
+For a Mac App Store build (3rd Party Mac Developer certificates +
+entitlements + `.pkg`), use `./build-mas.sh` instead.
+
 ### Architecture
 
 Single executable, ~10 Swift files in `Sources/Murmur/`, statically linked
 against whisper.cpp + ggml libs in `lib/`.
 
 ```
-Option+Space → AppState.toggle()
+Cmd+Shift+Space → AppState.toggle()
   → AudioRecorder.start()           [AVAudioEngine, 44.1 kHz mono]
   → ... user speaks ...
-Option+Space → AudioRecorder.stop()
+Cmd+Shift+Space → AudioRecorder.stop()
   → resample 44.1 k → 16 k, normalize peak to 0.9
-  → (any SpeechEngine).transcribe() ─┬─ WhisperEngine  [whisper.cpp + Metal GPU]
-                                     └─ ParakeetEngine [FluidAudio + Core ML + ANE]
+  → (any SpeechEngine).transcribe() ── WhisperEngine [whisper.cpp + Metal GPU]
   → TextPaster.paste()               [NSPasteboard + simulated Cmd+V]
                                      [text stays on clipboard for manual paste]
 ```
@@ -299,23 +288,23 @@ Option+Space → AudioRecorder.stop()
 | `AudioRecorder` | AVAudioEngine capture, resample, normalize | Audio thread + `NSLock` |
 | `SpeechEngine` (protocol) | `loadModel` / `transcribe` / `cleanup` contract | — |
 | `WhisperEngine` | whisper.cpp C API wrapper (turbo / large) | Swift `actor` |
-| `ParakeetEngine` | FluidAudio wrapper for Parakeet TDT v3 on ANE | Swift `actor` |
-| `HotkeyManager` | Carbon `RegisterEventHotKey` (Option+Space) | Event thread |
-| `TextPaster` | `NSPasteboard` + `CGEvent` Cmd+V | `@MainActor` |
+| `HotkeyManager` | Carbon `RegisterEventHotKey` (configurable, default ⌘⇧Space) | Event thread |
+| `TextPaster` | `NSPasteboard` + `CGEvent` Cmd+V (gated on `CGPreflightPostEventAccess`) | `@MainActor` |
 | `InputDeviceManager` | CoreAudio input device enumeration | — |
 | `WaveformView` / `WaveformOverlay` | Liquid Glass UI + `NSPanel` | `@MainActor` |
-| `ProgressDownloader` | `URLSessionDownloadDelegate`, EMA-smoothed speed (whisper only) | Delegate queue |
+| `ProgressDownloader` | `URLSessionDownloadDelegate`, EMA-smoothed speed | Delegate queue |
 
-`AppState.engine: (any SpeechEngine)?` is swapped when the user crosses
-engine boundaries (whisper ↔ parakeet). Same-engine variant changes
-(turbo ↔ large) reuse the existing `WhisperEngine` actor.
+`AppState.engine: (any SpeechEngine)?` is held behind a `SpeechEngine`
+protocol + `EngineKind` enum so re-introducing extra backends later stays an
+additive change. Today only `WhisperEngine` ships; turbo ↔ large reuse the
+same actor.
 
 State machine:
 
 ```
 .loading ──► .idle ◄──► .paused
               │
-              ▼ Option+Space
+              ▼ Cmd+Shift+Space
           .recording ──► .transcribing ──► .idle
               │
               ▼ Escape
@@ -353,8 +342,7 @@ open /Applications/Murmur.app
 
 - **Whisper language hardcoded** — `detect_language=true` + `language="auto"`
   produces zero segments in whisper.cpp 1.8.4. `WhisperEngine` sets
-  `language="ru"` explicitly. Switch in `WhisperEngine.swift::transcribeRaw`,
-  or simply use Parakeet which has working auto-detection.
+  `language="ru"` explicitly. Switch in `WhisperEngine.swift::transcribeRaw`.
 - **Apple Silicon only** — Intel Macs are not supported because the build links
   against Metal-accelerated ggml backends.
 - **First-launch download is large** — turbo is 1.5 GB, large is 3 GB. You'll

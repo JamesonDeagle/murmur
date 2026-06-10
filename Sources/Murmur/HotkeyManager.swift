@@ -8,8 +8,14 @@ final class HotkeyManager: @unchecked Sendable {
 
     static let shared = HotkeyManager()
 
-    func register(modifiers: UInt32 = UInt32(optionKey), keyCode: UInt32 = 49, onToggle: @escaping () -> Void) {
-        // keyCode 49 = Space, optionKey = Option
+    func register(modifiers: UInt32 = UInt32(cmdKey | shiftKey), keyCode: UInt32 = 49, onToggle: @escaping () -> Void) {
+        // keyCode 49 = Space. Default Cmd+Shift+Space.
+        //
+        // macOS 15+ (FB15168205) refuses RegisterEventHotKey for combos whose
+        // modifiers are only Option and/or Shift — it returns -9868 and the
+        // hotkey never fires. The combo must include Cmd or Control. We default
+        // to Cmd+Shift+Space; AppState's HotkeyCombo presets keep it on a
+        // Cmd/Control-anchored whitelist.
         self.onToggle = onToggle
         unregister()
 
