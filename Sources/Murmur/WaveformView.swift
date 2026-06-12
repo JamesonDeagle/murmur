@@ -124,8 +124,12 @@ struct WaveformView: View {
     /// to be wider to keep its visual presence.
     private let baseStroke: CGFloat = 4
     private let strokeGain: CGFloat = 42
-    private let baseBlur: CGFloat = 7
-    private let blurGain: CGFloat = 52
+    // Blur radii trimmed in v3.23: the shader field is soft by construction
+    // (fBM), so it doesn't need the huge Gaussian the hard-edged gradient
+    // did — and SwiftUI re-blurs every frame now that the fill itself
+    // animates per-pixel. Halving the radius is the single biggest FPS win.
+    private let baseBlur: CGFloat = 5
+    private let blurGain: CGFloat = 28
 
     /// Power-curve boost on the smoothed level. Audio RMS lives mostly
     /// in the lower half of [0, 1]; `pow(level, 0.55)` lifts that into
@@ -137,13 +141,16 @@ struct WaveformView: View {
     /// Baseline cycle frequency at silence — one full colour cycle every
     /// ~10 seconds. Slow enough to feel ambient when nobody's talking,
     /// fast enough that you can still see the flow moving at all.
-    private let basePhaseSpeed: CGFloat = 0.10
+    // Raised in v3.23 after user feedback: at 0.10-0.14 the idle ribbon
+    // looked frozen ("can't even tell there's an effect"). 0.26 reads as a
+    // clearly alive slow shimmer while still leaving a big jump to speech.
+    private let basePhaseSpeed: CGFloat = 0.26
     /// Additional cycles-per-second at level=1.0. Pushed high so a
     /// loud speaker can rip the cycle rate up to ~3.6 cps = one full
     /// pink→cyan→pink cycle every 0.28 s — visibly racing, not just
     /// "a bit faster than baseline". Combined with `basePhaseSpeed`
     /// this gives a 36× silence-to-peak speed ratio.
-    private let levelSpeedBoost: CGFloat = 3.5
+    private let levelSpeedBoost: CGFloat = 5.0
     /// Power curve applied to level before it multiplies `levelSpeedBoost`.
     /// 0.6 spreads the response across the whole talking range:
     ///   - level 0.10 →  25 % of boost → ~0.98 cps  (1.0 s / cycle)
@@ -168,8 +175,8 @@ struct WaveformView: View {
     /// voice drives a *third* reactive channel on top of flow-speed and
     /// stroke/blur intensity. Transcribing pins it to a steady moderate
     /// churn.
-    private let baseWarpAmp: CGFloat = 1.1
-    private let warpAmpGain: CGFloat = 2.4
+    private let baseWarpAmp: CGFloat = 1.0
+    private let warpAmpGain: CGFloat = 3.4
     /// Power curve on the level before it scales `warpAmpGain` — same
     /// shape philosophy as `levelCurve`, lifts quiet-to-medium volume into
     /// a visibly more agitated field.
@@ -181,8 +188,8 @@ struct WaveformView: View {
     /// luminance channel layered on top of the existing stroke / blur /
     /// opacity intensity — keeps silence readable without washing peaks to
     /// pure white.
-    private let baseBrightness: CGFloat = 0.75
-    private let brightnessGain: CGFloat = 0.45
+    private let baseBrightness: CGFloat = 0.80
+    private let brightnessGain: CGFloat = 0.55
 
     // MARK: - Geometry
 
@@ -211,10 +218,14 @@ struct WaveformView: View {
     /// concentrated near the notch instead of fading into invisibility
     /// across 200 pt of falloff. Baseline opacity is high enough to be
     /// clearly visible on white (≈48% black → mid-grey rim).
-    private let scrimStroke: CGFloat = 32
-    private let scrimBlur: CGFloat = 45
-    private let scrimBaseOpacity: CGFloat = 0.48
-    private let scrimIntensityGain: CGFloat = 0.18
+    // Scrim toned way down in v3.23: under the dense v3.21 gradient it was
+    // invisible, but the additive neon field is semi-transparent between
+    // blobs and the black shadow showed through as "dirty dark" patches.
+    // Keep just enough to lift the glow off bright backdrops.
+    private let scrimStroke: CGFloat = 26
+    private let scrimBlur: CGFloat = 40
+    private let scrimBaseOpacity: CGFloat = 0.20
+    private let scrimIntensityGain: CGFloat = 0.10
 
     /// How far the **blur halo** is allowed to spill past the glow
     /// shape's rectangle. Both the FlowingGradient fill and the mask
@@ -253,6 +264,9 @@ struct WaveformView: View {
     /// resets it to 0 at the start of every dictation.
     @State private var fieldTime: CGFloat = 0
     @State private var lastPhaseUpdate: TimeInterval = 0
+    /// Slow-followed mic level for the blob-SIZE channel (see advancePhase).
+    /// Keeps growth/shrink smooth while flow speed stays per-syllable snappy.
+    @State private var slowLevel: CGFloat = 0
     /// Safety ceiling for `fieldTime` — see above. fBM noise is periodic
     /// enough that a wrap here is imperceptible, but it should be
     /// effectively unreachable in normal use.
@@ -329,6 +343,7 @@ struct WaveformView: View {
                     //     no change to fire on.
                     fieldTime = 0
                     lastPhaseUpdate = 0
+                    slowLevel = 0
                     transitionProgress = (panel.mode == .transcribing) ? 1.0 : 0.0
                 }
                 .onChange(of: panel.mode) { _, newMode in
@@ -413,7 +428,7 @@ struct WaveformView: View {
                     .frame(width: shapeW, height: shapeH, alignment: .top)
                     .frame(width: outerW, height: outerH, alignment: .top)
             )
-            .blur(radius: blur * 1.7)
+            .blur(radius: blur * 0.95)
             // Outer halo opacity scales with intensity too — silence
             // gives a translucent shimmer, peaks light up. Without
             // this scaling the halo body stays equally "present" at
@@ -437,8 +452,14 @@ struct WaveformView: View {
                     .frame(width: shapeW, height: shapeH, alignment: .top)
                     .frame(width: outerW, height: outerH, alignment: .top)
             )
-            .blur(radius: blur * 0.55)
+            .blur(radius: blur * 0.26)
         }
+        // Rasterize the whole glow subtree (two shader fills, two stroke
+        // masks, three Gaussian blurs) into one offscreen Metal texture per
+        // frame instead of compositing it through SwiftUI layer-by-layer.
+        // With the per-pixel animated shader this is the difference between
+        // choppy and fluid.
+        .drawingGroup()
         .frame(width: outerW, height: outerH, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -508,12 +529,32 @@ struct WaveformView: View {
     /// close — the 5th seam stop the gradient needs is dropped here.
     /// Recording: pink / white / yellow / cyan. Transcribing: blue / white
     /// / blue / white.
+    /// Dedicated 4-stop palettes for the shader field. NOT sliced from the
+    /// gradient palettes: SwiftUI's .color() hands colours to the shader in
+    /// LINEAR space, where white stops flood the field into a washed-out
+    /// haze (the field mixes stops by noise values, so a white stop bleeds
+    /// everywhere — unlike the gradient, where it occupied one band). All
+    /// four stops are saturated; white appears only via the peak-bloom term
+    /// inside the shader.
+    /// User-requested mix: pink, sky blue, yellow, orange — three warm
+    /// stops + one cool accent. The violet stop was dropped: pink and cyan
+    /// already sum to violet-ish in the additive blend, and a dedicated
+    /// violet stop tipped the whole field purple.
+    private let recordingShaderPalette: [PaletteRGB] = [
+        PaletteRGB(r: 1.00, g: 0.28, b: 0.62),   // hot pink
+        PaletteRGB(r: 0.20, g: 0.80, b: 1.00),   // sky cyan
+        PaletteRGB(r: 1.00, g: 0.80, b: 0.22),   // golden yellow
+        PaletteRGB(r: 1.00, g: 0.45, b: 0.10),   // orange
+    ]
+    private let transcribingShaderPalette: [PaletteRGB] = [
+        PaletteRGB(r: 0.20, g: 0.50, b: 1.00),   // blue
+        PaletteRGB(r: 0.62, g: 0.85, b: 1.00),   // ice
+        PaletteRGB(r: 0.12, g: 0.30, b: 0.95),   // deep blue
+        PaletteRGB(r: 0.80, g: 0.92, b: 1.00),   // pale ice
+    ]
+
     private var currentPalette4: [Color] {
-        // Stops 0…3 of each palette — the trailing seam stop (index 4) is
-        // only meaningful for the gradient's wrap, so we slice it off.
-        let rec = recordingPalette.prefix(4)
-        let trans = transcribingPalette.prefix(4)
-        return zip(rec, trans).map { r, t in
+        zip(recordingShaderPalette, transcribingShaderPalette).map { r, t in
             r.lerp(to: t, t: transitionProgress).asColor
         }
     }
@@ -547,7 +588,9 @@ struct WaveformView: View {
     /// `currentIntensity`, so a level sample arriving mid-morph still
     /// nudges the field naturally and the transcribing churn doesn't pop in.
     private func currentWarpAmp() -> CGFloat {
-        let boosted = pow(max(0, panel.smoothedLevel), warpAmpCurve)
+        // slowLevel, not smoothedLevel: the size channel must ease, not jump
+        // on the first syllable (see advancePhase).
+        let boosted = pow(max(0, slowLevel), warpAmpCurve)
         let recordingW = baseWarpAmp + boosted * warpAmpGain
         return recordingW * (1 - transitionProgress)
              + transcribingWarpAmp * transitionProgress
@@ -567,6 +610,18 @@ struct WaveformView: View {
             dt = 0
         }
         lastPhaseUpdate = now
+
+        // Slow-follow level for the SIZE channel (warpAmp / blob growth).
+        // `smoothedLevel` itself is deliberately snappy (per-syllable flow
+        // speed), but feeding it straight into the mask thresholds made
+        // blobs JUMP in size on the first syllable. Critically-damped
+        // follower: fast-ish attack (~0.28 s), slower release (~0.55 s) —
+        // blobs bloom smoothly and deflate even smoother.
+        if dt > 0 {
+            let target = panel.smoothedLevel
+            let tau: CGFloat = target > slowLevel ? 0.28 : 0.55
+            slowLevel += (target - slowLevel) * min(1, dt / tau)
+        }
 
         // Reduce Motion: freeze the field. We still update lastPhaseUpdate
         // above so dt stays sane if it's toggled mid-session, but we don't

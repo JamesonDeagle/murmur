@@ -6,7 +6,7 @@
 
 <p align="center">
   Native macOS menubar speech-to-text. 100% local on Apple Silicon.<br>
-  <b>Press Cmd+Shift+Space, talk, press again — text appears wherever your cursor is.</b>
+  <b>Press Option+Space, talk, press again — text appears wherever your cursor is.</b>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.21.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.23.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **First-launch step** *(important — macOS will block a double-click)*:
    - Open Finder → `Applications`.
@@ -55,7 +55,7 @@
    ⬇ Loading turbo: 245 MB / 1,53 GB
    16% · 12,4 MB/s · ETA 1m32s
    ```
-6. **Done.** Click into any text field, press **Cmd+Shift+Space**, talk, press
+6. **Done.** Click into any text field, press **Option+Space**, talk, press
    again. Your words appear at the cursor.
 
 That's it. No accounts, no API keys, nothing leaves your Mac.
@@ -79,8 +79,8 @@ fix applies to most open-source Mac apps.
 
 | Action | How |
 |---|---|
-| Start recording | `Cmd+Shift+Space` |
-| Stop & paste text | `Cmd+Shift+Space` again |
+| Start recording | `Option+Space` |
+| Stop & paste text | `Option+Space` again |
 | Cancel without transcribing | `Escape` |
 | Free RAM without quitting | menu → **Pause (free RAM)** |
 | Switch model (turbo / large) | menu → **Model** |
@@ -108,20 +108,25 @@ cursor and the glow fades out.
 - **Works everywhere** — Mail, Slack, Telegram, Xcode, Terminal, browsers, Notes
 - **Two models** — turbo (fast, default) or large (best quality), persisted
   across launches with download progress, speed, and ETA in the menu
-- **Configurable shortcut** — pick ⌘⇧Space (default), ⌃⇧Space, or ⌘⇧D in
-  menu → **Shortcut**; the choice persists across launches
+- **Configurable shortcut** — ⌥Space by default; pick ⌘⇧Space, ⌃⇧Space, or
+  ⌘⇧D in menu → **Shortcut**; the choice persists across launches. On macOS
+  builds that reject Option-only hotkeys (FB15168205) Murmur silently falls
+  back to ⌘⇧Space
 - **Pause / Resume** — free 1.5–3 GB of RAM and Metal GPU memory without
   quitting the app
 - **Microphone selector** — defaults to built-in mic; doesn't get confused by
   Bluetooth speakers or virtual devices
 - **Multi-monitor aware** — overlay always lands on the screen with your cursor
-- **Ambient-light glow around the notch** *(new in v3.21)* — colours flow
-  left-to-right along the perimeter of the physical MacBook notch.
-  Brightness, thickness and flow speed all scale with your voice in real
-  time (sqrt-curve EMA, ~12× dynamic range from silence to peak). Smooth
-  morph between recording (pink/white/yellow/cyan) and transcribing
-  (blue/white) palettes — no jump-cuts. On notch-less Macs the same glow
-  contour sits at the top edge as a soft status indicator
+- **Siri-grade morphing glow around the notch** *(new in v3.23)* — a
+  Metal-shader colour field (domain-warped fBM) renders organically
+  morphing light blobs along the notch contour: a continuous glowing
+  ribbon at rest, blooming blobs and fusing streams as you speak. Voice
+  drives three channels — flow speed, blob size and brightness — on
+  smooth asymmetric envelopes (fast bloom, slow decay). Light-physics
+  colour mixing: overlapping blobs brighten instead of muddying, dark
+  mixes can't happen by construction. Smooth palette morph to blue/ice
+  while transcribing. Falls back to the v3.21 flowing gradient if the
+  shader is unavailable
 - **Auto-delete unused models** *(new in v3.9)* — any model you haven't dictated
   with for **3 days** is deleted from disk on next launch. Pick it later and it
   re-downloads through the same progress UI. Keeps an unused large model from
@@ -140,7 +145,7 @@ cursor and the glow fades out.
 2. Click the icon. If you see `Loading model...` or download progress —
    wait for it to finish.
 3. If you see `⏸ Paused — model unloaded` — click **Resume**.
-4. If another app is using `Cmd+Shift+Space`, change one of them — or pick a
+4. If another app is using `Option+Space`, change one of them — or pick a
    different combo in menu → **Shortcut**.
 
 ### Recording starts, but nothing gets pasted
