@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Murmur — нативное macOS menubar-приложение для speech-to-text. Работает полностью локально на Apple Silicon через whisper.cpp (C API + Metal GPU). Один .app файл, zero dependencies, drag-to-install.
 
-**Версия:** 3.21 (native Swift)
+**Версия:** 3.23 (native Swift)
 **Платформа:** macOS 14+ (Sonoma), Apple Silicon (M1/M2/M3/M4)
 **Стек:** Swift 6 + SwiftUI + whisper.cpp (static linking) + Metal + FluidAudio (Parakeet Core ML / ANE) + mlx-audio-swift (Voxtral 4B, Qwen3-ASR 1.7B на MLX/GPU)
 **UI:** Liquid Glass (macOS 26 Tahoe) с fallback на ultraThinMaterial для macOS 14–15
@@ -270,6 +270,7 @@ const char* whisper_full_get_segment_text(whisper_context* ctx, int i_segment);
 
 ## History
 
+- **v3.23**: Siri-grade morphing glow. Заливка glow-контура переведена с бегущего `FlowingGradient` на кастомный Metal-шейдер `Sources/Murmur/Shaders/GlowField.metal` (domain-warped fBM colour field, техника Inigo Quilez): органично морфящиеся переливающиеся пятна вместо линейной ленты. Шейдер вызывается через SwiftUI `.colorEffect` (macOS 14+), без собственного таймера: время приходит uniform'ом из существующего `TimelineView`-интегратора. Меняется ТОЛЬКО заливка: маски stroke-контура челки, двухслойность halo+crisp, scrim, blur, EMA-level, morph recording↔transcribing через `transitionProgress` и все страховки v3.20/v3.21 нетронуты. Голос теперь правит три канала поля: скорость эволюции (`fieldTime`, тот же интегратор, но без wrap по 1: шумовое время не циклично, wrap дал бы снап; страховочный wrap по 2048 + reset в `onAppear`), хаотичность `warpAmp` (1.1 тишина → 3.5 крик, кривая 0.55), яркость (0.75 → 1.2). Палитра для шейдера: 4 стопа (seam не нужен, цвета мешаются по значениям поля, не по координате) против 5-стоповой для градиента, лерпятся тем же `PaletteRGB`-с-clamp. `+ Reduce Motion` guard в `advancePhase` (статичное поле, реагирует только яркостью). **Сборка metallib**: оба `swift build`-скрипта (`build-app.sh`, `build-mas.sh`) не запускают Metal-компилятор, поэтому явная компиляция `xcrun metal -std=metal3.0` + `xcrun metallib` → `Murmur.app/Contents/Resources/default.metallib` (в build-mas компиляция идёт до codesign, чтобы попасть под подпись Resources). `GlowShaderSupport` ищет metallib в `Bundle.main` ПЕРВЫМ (основной путь), SPM-бандл вторичен. **Fallback**: при отсутствии metallib (plain `swift build`-бинарь из `.build/release`) `GlowShaderSupport.isAvailable == false` → автоматический откат на сохранённый `FlowingGradient` целиком, приложение работает со старым визуалом v3.21, не с чёрным/белым экраном. build-app.sh при провале компиляции шейдера предупреждает но не падает (fallback); build-mas.sh падает жёстко (store-сборка не должна тихо отгружать деградированный визуал).
 - **v1.0** — Hammerspoon + Python daemon (mlx-whisper). Worked but required Hammerspoon + Python + Homebrew.
 - **v2.0** — Published to GitHub with install script, DMG, README.
 - **v3.0** — Native Swift app. Single .app, no dependencies. whisper.cpp C API + Metal GPU.

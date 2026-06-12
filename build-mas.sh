@@ -105,6 +105,22 @@ cp Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
 cp LICENSE                   "$APP/Contents/Resources/"
 cp THIRD-PARTY-LICENSES.md   "$APP/Contents/Resources/"
 
+# Glow shader (v3.23): compile GlowField.metal → default.metallib BEFORE the
+# bundle is signed in step 4, so the metallib is covered by the signature
+# (codesign --sign on the bundle seals Contents/Resources). `swift build`
+# never invokes the Metal compiler, so this explicit step is the ONLY way
+# the App Store build ships the shader — without it MAS users would silently
+# get the FlowingGradient fallback. Unlike build-app.sh we fail HARD here:
+# a store build must not quietly ship the degraded visual.
+echo "==> Compile glow shader -> default.metallib"
+METAL_SRC="Sources/Murmur/Shaders/GlowField.metal"
+METALLIB_OUT="$APP/Contents/Resources/default.metallib"
+xcrun -sdk macosx metal -std=metal3.0 -c "$METAL_SRC" -o /tmp/glowfield.air \
+    || die "metal compile failed for $METAL_SRC"
+xcrun -sdk macosx metallib /tmp/glowfield.air -o "$METALLIB_OUT" \
+    || die "metallib link failed"
+echo "    metallib OK ($(du -h "$METALLIB_OUT" | cut -f1))"
+
 # === 3. Embed provisioning profile ==========================================
 echo "==> Embed provisioning profile"
 cp "$PROVISION_PROFILE" "$APP/Contents/embedded.provisionprofile"

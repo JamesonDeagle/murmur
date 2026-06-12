@@ -1,5 +1,82 @@
 import SwiftUI
 
+// MARK: - GlowShaderSupport
+
+/// Locates the compiled Metal shader library at runtime and exposes a
+/// `ShaderLibrary` for the domain-warped glow field. Returns `nil` when no
+/// compiled `.metallib` is present (e.g. a plain `swift build` binary run
+/// from `.build/release` where the Metal toolchain never compiled the
+/// `.metal` source) — the caller then falls back to the `FlowingGradient`
+/// renderer, so debug builds and any toolchain hiccup degrade to the known
+/// v3.21 visual instead of a blank rectangle.
+///
+/// Search order matters. The production build path (`build-app.sh` /
+/// `build-mas.sh`, both on plain `swift build`) explicitly compiles the
+/// shader into `Murmur.app/Contents/Resources/default.metallib` via
+/// `xcrun metal` — that is the PRIMARY artifact, found through
+/// `Bundle.main`. The SPM resource bundle (`Murmur_Murmur.bundle`,
+/// produced only when building through `xcodebuild`) is the secondary
+/// fallback. We probe `Bundle.main` first for that reason.
+enum GlowShaderSupport {
+    /// Name of the stitchable function in `GlowField.metal`. Referenced in
+    /// exactly one place so a rename can't drift.
+    static let functionName = "glowField"
+
+    /// The library that actually contains a compiled metallib, or nil.
+    static let library: ShaderLibrary? = {
+        // 1. PRIMARY: default.metallib next to the executable in the app's
+        //    main bundle Resources. This is what both build scripts produce.
+        if mainBundleHasMetallib {
+            return ShaderLibrary.default
+        }
+        // 2. SECONDARY: SPM resource bundle (xcodebuild path only).
+        if let bundle = spmBundle {
+            return ShaderLibrary.bundle(bundle)
+        }
+        return nil
+    }()
+
+    static var isAvailable: Bool { library != nil }
+
+    /// True when `Bundle.main` carries any compiled `*.metallib`. We check
+    /// for existence rather than trusting `ShaderLibrary.default`
+    /// unconditionally: a plain `swift build` binary has no metallib, and
+    /// using a missing library would render the `colorEffect` as a no-op
+    /// (white rectangle) inside the mask.
+    private static var mainBundleHasMetallib: Bool {
+        guard let urls = Bundle.main.urls(
+            forResourcesWithExtension: "metallib",
+            subdirectory: nil
+        ) else { return false }
+        return !urls.isEmpty
+    }
+
+    /// The SPM-generated resource bundle, only if it exists AND contains a
+    /// compiled metallib (plain `swift build` may copy the raw `.metal`
+    /// into the bundle without compiling it — then there is no shader).
+    private static var spmBundle: Bundle? {
+        let name = "Murmur_Murmur.bundle"
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent(name),
+            Bundle.main.bundleURL.appendingPathComponent(name),
+            Bundle.main.executableURL?
+                .deletingLastPathComponent()
+                .appendingPathComponent(name),
+        ]
+        for url in candidates {
+            guard let url, let bundle = Bundle(url: url) else { continue }
+            let metallibs = bundle.urls(
+                forResourcesWithExtension: "metallib",
+                subdirectory: nil
+            )
+            if metallibs?.isEmpty == false {
+                return bundle
+            }
+        }
+        return nil
+    }
+}
+
 /// Ambient-light glow that wraps the perimeter of the MacBook notch.
 ///
 /// The host NSPanel (see WaveformOverlay) is sized as
@@ -21,6 +98,12 @@ import SwiftUI
 /// slow sine instead of from RMS, since the mic is no longer recording.
 struct WaveformView: View {
     @EnvironmentObject var panel: WaveformPanel
+
+    /// When Reduce Motion is on we stop integrating `fieldTime` so the
+    /// shader field is static (it still reacts to the voice via brightness
+    /// and the existing stroke/blur intensity, just without the constant
+    /// morph). The fallback FlowingGradient likewise stops flowing.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - Intensity (stroke width + blur)
 
@@ -76,6 +159,31 @@ struct WaveformView: View {
     /// waiting on whisper".
     private let transcribingPhaseSpeed: CGFloat = 0.25
 
+    // MARK: - Shader field dynamics (v3.23, only used when shader available)
+
+    /// Domain-warp amplitude for the fBM colour field. Controls how
+    /// chaotic the spots are: low → lazy, large, slow-morphing blobs;
+    /// high → the field "boils", spots fracture and swirl. Recording maps
+    /// it from the mic level (silence = calm, speech = roiling), so the
+    /// voice drives a *third* reactive channel on top of flow-speed and
+    /// stroke/blur intensity. Transcribing pins it to a steady moderate
+    /// churn.
+    private let baseWarpAmp: CGFloat = 1.1
+    private let warpAmpGain: CGFloat = 2.4
+    /// Power curve on the level before it scales `warpAmpGain` — same
+    /// shape philosophy as `levelCurve`, lifts quiet-to-medium volume into
+    /// a visibly more agitated field.
+    private let warpAmpCurve: CGFloat = 0.55
+    /// Constant warp amplitude during transcribing.
+    private let transcribingWarpAmp: CGFloat = 1.3
+
+    /// Overall brightness gain handed to the shader. A soft *extra*
+    /// luminance channel layered on top of the existing stroke / blur /
+    /// opacity intensity — keeps silence readable without washing peaks to
+    /// pure white.
+    private let baseBrightness: CGFloat = 0.75
+    private let brightnessGain: CGFloat = 0.45
+
     // MARK: - Geometry
 
     /// Glow contour sits **flush** with the physical notch — no side or
@@ -129,14 +237,26 @@ struct WaveformView: View {
 
     // MARK: - State
 
-    /// Accumulated gradient phase in [0, 1). Advanced each animation
-    /// frame inside the TimelineView body via a phantom-view
-    /// `onChange(of: now)`. We integrate `speed(level) × dt` so the
-    /// gradient flow stays smooth when `smoothedLevel` changes — a
-    /// straight `phase = time × speed(level)` mapping would snap the
-    /// phase whenever the level shifts.
-    @State private var phase: CGFloat = 0
+    /// Accumulated field "time" (in cycles). Advanced each animation frame
+    /// inside the TimelineView body via a phantom-view `onChange(of: now)`.
+    /// We integrate `speed(level) × dt` so the flow stays smooth when
+    /// `smoothedLevel` changes — a straight `time × speed(level)` mapping
+    /// would snap whenever the level shifts.
+    ///
+    /// IMPORTANT (v3.23): this is NOT wrapped to [0, 1). The shader feeds
+    /// it straight into noise coordinates, where wrapping would cause a
+    /// visible snap as the field teleports. The `FlowingGradient` fallback
+    /// takes its own `truncatingRemainder` of this value for its seamless
+    /// offset wrap, so a non-wrapped accumulator serves both renderers. A
+    /// safety wrap at 2048 (only reached after ~10 min of continuous
+    /// shouting) guards against float precision loss; `onAppear` also
+    /// resets it to 0 at the start of every dictation.
+    @State private var fieldTime: CGFloat = 0
     @State private var lastPhaseUpdate: TimeInterval = 0
+    /// Safety ceiling for `fieldTime` — see above. fBM noise is periodic
+    /// enough that a wrap here is imperceptible, but it should be
+    /// effectively unreachable in normal use.
+    private let fieldTimeWrap: CGFloat = 2048
 
     /// 0 → full recording visuals (pink/white/yellow/cyan, level-driven
     /// intensity, level-driven flow speed).
@@ -186,7 +306,7 @@ struct WaveformView: View {
                                 advancePhase(now: newNow)
                             }
 
-                        glow(intensity: intensity, phase: phase)
+                        glow(intensity: intensity, fieldTime: fieldTime)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
@@ -207,7 +327,7 @@ struct WaveformView: View {
                     //     actual changes — and after `hide()` resets
                     //     mode back to .recording, the next show() sees
                     //     no change to fire on.
-                    phase = 0
+                    fieldTime = 0
                     lastPhaseUpdate = 0
                     transitionProgress = (panel.mode == .transcribing) ? 1.0 : 0.0
                 }
@@ -233,7 +353,7 @@ struct WaveformView: View {
     /// stroke so the colours appear to travel along the contour rather
     /// than inside the notch shape.
     @ViewBuilder
-    private func glow(intensity: CGFloat, phase: CGFloat) -> some View {
+    private func glow(intensity: CGFloat, fieldTime: CGFloat) -> some View {
         let stroke = baseStroke + strokeGain * intensity
         let blur = baseBlur + blurGain * intensity
 
@@ -245,12 +365,22 @@ struct WaveformView: View {
             style: .continuous
         )
 
-        let palette = currentPalette
         let shapeW = panel.notchWidth + glowExtraSides * 2
         let shapeH = panel.topInset + glowExtraBottom
         let outerW = shapeW + blurSpill * 2
         let outerH = shapeH + blurSpill
         let scrimOpacity = scrimBaseOpacity + scrimIntensityGain * intensity
+
+        // The colour source for both glow layers. When the Metal shader is
+        // available we use the domain-warped fBM field; otherwise we fall
+        // back to the v3.21 FlowingGradient. Both fill the same outer frame
+        // and read the same `fieldTime`, so the masks / blurs below are
+        // identical for either renderer — only the fill differs.
+        let useShader = GlowShaderSupport.isAvailable
+        let warp = currentWarpAmp()
+        let brightness = baseBrightness + brightnessGain * intensity
+        let palette4 = currentPalette4
+        let paletteFallback = currentPalette
 
         ZStack {
             // Scrim — soft dark halo drawn FIRST so it sits underneath
@@ -266,41 +396,77 @@ struct WaveformView: View {
                 .opacity(scrimOpacity)
 
             // Outer halo: thick crisp-stroke mask → heavy blur applied
-            // to the result. The gradient fill spans the **outer** frame
+            // to the result. The colour fill spans the **outer** frame
             // (shape size + blur spill on all sides), so when the blur
-            // is applied afterward it has gradient pixels to draw with
+            // is applied afterward it has fill pixels to draw with
             // outside the stroke contour — no hard rectangle edges.
-            FlowingGradient(phase: phase, colors: palette)
-                .frame(width: outerW, height: outerH, alignment: .top)
-                .mask(
-                    shape
-                        .stroke(.white, style: StrokeStyle(lineWidth: stroke * 1.9, lineCap: .round))
-                        .frame(width: shapeW, height: shapeH, alignment: .top)
-                        .frame(width: outerW, height: outerH, alignment: .top)
-                )
-                .blur(radius: blur * 1.7)
-                // Outer halo opacity scales with intensity too — silence
-                // gives a translucent shimmer, peaks light up. Without
-                // this scaling the halo body stays equally "present" at
-                // any volume and the contrast feels muted even though
-                // stroke / blur are doing their job.
-                .opacity(0.55 + 0.4 * intensity)
+            colourFill(
+                useShader: useShader,
+                outerW: outerW, outerH: outerH,
+                fieldTime: fieldTime, warp: warp, brightness: brightness,
+                palette4: palette4, paletteFallback: paletteFallback
+            )
+            .frame(width: outerW, height: outerH, alignment: .top)
+            .mask(
+                shape
+                    .stroke(.white, style: StrokeStyle(lineWidth: stroke * 1.9, lineCap: .round))
+                    .frame(width: shapeW, height: shapeH, alignment: .top)
+                    .frame(width: outerW, height: outerH, alignment: .top)
+            )
+            .blur(radius: blur * 1.7)
+            // Outer halo opacity scales with intensity too — silence
+            // gives a translucent shimmer, peaks light up. Without
+            // this scaling the halo body stays equally "present" at
+            // any volume and the contrast feels muted even though
+            // stroke / blur are doing their job.
+            .opacity(0.55 + 0.4 * intensity)
 
             // Inner crisp line — same composition but with a thinner
             // mask stroke and lighter blur. Same outer-frame trick so
             // it also fades to nothing at the edges instead of clipping.
-            FlowingGradient(phase: phase, colors: palette)
-                .frame(width: outerW, height: outerH, alignment: .top)
-                .mask(
-                    shape
-                        .stroke(.white, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
-                        .frame(width: shapeW, height: shapeH, alignment: .top)
-                        .frame(width: outerW, height: outerH, alignment: .top)
-                )
-                .blur(radius: blur * 0.55)
+            colourFill(
+                useShader: useShader,
+                outerW: outerW, outerH: outerH,
+                fieldTime: fieldTime, warp: warp, brightness: brightness,
+                palette4: palette4, paletteFallback: paletteFallback
+            )
+            .frame(width: outerW, height: outerH, alignment: .top)
+            .mask(
+                shape
+                    .stroke(.white, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                    .frame(width: shapeW, height: shapeH, alignment: .top)
+                    .frame(width: outerW, height: outerH, alignment: .top)
+            )
+            .blur(radius: blur * 0.55)
         }
         .frame(width: outerW, height: outerH, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// One colour-source layer for the glow: the Metal field when
+    /// available, else the FlowingGradient. Extracted so the two glow
+    /// strokes (halo + crisp) stay byte-identical.
+    @ViewBuilder
+    private func colourFill(
+        useShader: Bool,
+        outerW: CGFloat, outerH: CGFloat,
+        fieldTime: CGFloat, warp: CGFloat, brightness: CGFloat,
+        palette4: [Color], paletteFallback: [Color]
+    ) -> some View {
+        if useShader {
+            GlowFieldFill(
+                size: CGSize(width: outerW, height: outerH),
+                time: fieldTime,
+                warpAmp: warp,
+                brightness: brightness,
+                colors: palette4
+            )
+        } else {
+            FlowingGradient(
+                phase: fieldTime.truncatingRemainder(dividingBy: 1),
+                colors: paletteFallback
+            )
+        }
     }
 
     // MARK: - Palette
@@ -335,6 +501,23 @@ struct WaveformView: View {
         }
     }
 
+    /// Four palette stops for the shader, interpolated by
+    /// `transitionProgress` exactly like `currentPalette` (same RGB-struct
+    /// lerp with clamp against spring-overshoot). The shader mixes colours
+    /// by noise-field *values*, not by a coordinate, so there is no seam to
+    /// close — the 5th seam stop the gradient needs is dropped here.
+    /// Recording: pink / white / yellow / cyan. Transcribing: blue / white
+    /// / blue / white.
+    private var currentPalette4: [Color] {
+        // Stops 0…3 of each palette — the trailing seam stop (index 4) is
+        // only meaningful for the gradient's wrap, so we slice it off.
+        let rec = recordingPalette.prefix(4)
+        let trans = transcribingPalette.prefix(4)
+        return zip(rec, trans).map { r, t in
+            r.lerp(to: t, t: transitionProgress).asColor
+        }
+    }
+
     // MARK: - Intensity (level-driven for recording, sine for transcribing)
 
     /// Blend recording's level-driven intensity with transcribing's
@@ -358,6 +541,18 @@ struct WaveformView: View {
         return recordingI * (1 - transitionProgress) + transcribingI * transitionProgress
     }
 
+    /// Domain-warp amplitude for the shader field, blended between the
+    /// level-driven recording value and the steady transcribing value by
+    /// `transitionProgress`. Same compute-both-and-lerp pattern as
+    /// `currentIntensity`, so a level sample arriving mid-morph still
+    /// nudges the field naturally and the transcribing churn doesn't pop in.
+    private func currentWarpAmp() -> CGFloat {
+        let boosted = pow(max(0, panel.smoothedLevel), warpAmpCurve)
+        let recordingW = baseWarpAmp + boosted * warpAmpGain
+        return recordingW * (1 - transitionProgress)
+             + transcribingWarpAmp * transitionProgress
+    }
+
     // MARK: - Phase advance
 
     /// Integrate flow speed × dt into `phase`. Speed depends on mode and
@@ -373,17 +568,33 @@ struct WaveformView: View {
         }
         lastPhaseUpdate = now
 
+        // Reduce Motion: freeze the field. We still update lastPhaseUpdate
+        // above so dt stays sane if it's toggled mid-session, but we don't
+        // integrate — the shader renders a static field and the gradient
+        // fallback stops sliding. The voice still drives brightness and the
+        // stroke/blur intensity, so the glow remains responsive, just not
+        // continuously morphing.
+        guard !reduceMotion else { return }
+
         // Lerp the two speeds via transitionProgress so the flow doesn't
         // step-change at mode swap — it eases from whatever the mic was
         // driving toward the steady transcribing rate (or back).
-        // `pow(level, 0.5)` lifts quiet-to-medium volume into a clearly
+        // `pow(level, 0.6)` lifts quiet-to-medium volume into a clearly
         // faster flow; otherwise the boost feels linear and uniform.
         let speedLevel = pow(max(0, panel.smoothedLevel), speedLevelCurve)
         let recordingSpeed = basePhaseSpeed + speedLevel * levelSpeedBoost
         let speed = recordingSpeed * (1 - transitionProgress)
                   + transcribingPhaseSpeed * transitionProgress
 
-        phase = (phase + dt * speed).truncatingRemainder(dividingBy: 1)
+        // No wrap to [0, 1): `fieldTime` feeds straight into the shader's
+        // noise coordinates and a wrap would snap the field. The gradient
+        // fallback takes its own fractional part. A 2048-cycle safety wrap
+        // (≈10 min of continuous shouting) keeps float precision sane while
+        // being imperceptible — fBM is periodic enough that the jump is
+        // invisible, and `onAppear` resets to 0 every dictation anyway.
+        fieldTime = (fieldTime + dt * speed).truncatingRemainder(
+            dividingBy: fieldTimeWrap
+        )
     }
 }
 
@@ -408,6 +619,77 @@ private struct PaletteRGB {
             g: g + (other.g - g) * tc,
             b: b + (other.b - b) * tc
         )
+    }
+}
+
+// MARK: - GlowFieldFill (Metal shader)
+
+/// Fills its frame with the domain-warped fBM colour field from
+/// `GlowField.metal` via `.colorEffect`. The white `Rectangle` is only a
+/// source of `alpha = 1` — the shader writes the colour and multiplies by
+/// that alpha so the whole rect is opaque field, ready to be masked by the
+/// notch-contour stroke in `glow(...)`.
+///
+/// Uniform order matches the shader's parameter list exactly (after the
+/// implicit `position` + `color`): `size, time, warpAmp, brightness, cA,
+/// cB, cC, cD`. The four colours are the already-lerped 4-stop palette.
+private struct GlowFieldFill: View {
+    let size: CGSize
+    let time: CGFloat
+    let warpAmp: CGFloat
+    let brightness: CGFloat
+    /// Exactly four colour stops (see `currentPalette4`). Guarded below so a
+    /// short array can never crash the shader call.
+    let colors: [Color]
+
+    var body: some View {
+        // Pad to 4 stops defensively — `currentPalette4` always supplies
+        // four, but a shader argument mismatch would be a hard crash, so we
+        // never index past the end.
+        let c0 = colors.indices.contains(0) ? colors[0] : .white
+        let c1 = colors.indices.contains(1) ? colors[1] : .white
+        let c2 = colors.indices.contains(2) ? colors[2] : .white
+        let c3 = colors.indices.contains(3) ? colors[3] : .white
+
+        Rectangle()
+            .fill(.white)
+            .modifier(
+                GlowFieldEffect(
+                    size: size,
+                    time: time,
+                    warpAmp: warpAmp,
+                    brightness: brightness,
+                    c0: c0, c1: c1, c2: c2, c3: c3
+                )
+            )
+    }
+}
+
+/// Applies the `glowField` shader as a `colorEffect`, or no effect at all
+/// if the library is somehow unavailable (the caller already gates on
+/// `GlowShaderSupport.isAvailable`, so this is a belt-and-suspenders no-op
+/// rather than a fallback path — the FlowingGradient handles real
+/// unavailability one level up).
+private struct GlowFieldEffect: ViewModifier {
+    let size: CGSize
+    let time: CGFloat
+    let warpAmp: CGFloat
+    let brightness: CGFloat
+    let c0, c1, c2, c3: Color
+
+    func body(content: Content) -> some View {
+        if let library = GlowShaderSupport.library {
+            let shader = library[dynamicMember: GlowShaderSupport.functionName](
+                .float2(Float(size.width), Float(size.height)),
+                .float(Float(time)),
+                .float(Float(warpAmp)),
+                .float(Float(brightness)),
+                .color(c0), .color(c1), .color(c2), .color(c3)
+            )
+            content.colorEffect(shader)
+        } else {
+            content
+        }
     }
 }
 

@@ -32,6 +32,27 @@ cp Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
 cp LICENSE                         "$APP/Contents/Resources/"
 cp THIRD-PARTY-LICENSES.md         "$APP/Contents/Resources/"
 
+# Glow shader (v3.23): compile GlowField.metal → default.metallib and drop
+# it into the app's Resources. `swift build` does NOT run the Metal
+# compiler, so the .metal source alone gives no runtime shader — the app
+# would silently fall back to the old FlowingGradient. We compile it
+# explicitly with the Metal toolchain (installed since v3.10). The runtime
+# loader (GlowShaderSupport) probes Bundle.main for any *.metallib first, so
+# `ShaderLibrary.default` resolves `glowField` from this file. If
+# compilation fails for any reason we DON'T abort the build — the app still
+# works via the gradient fallback — but we shout about it.
+METAL_SRC="Sources/Murmur/Shaders/GlowField.metal"
+METALLIB_OUT="$APP/Contents/Resources/default.metallib"
+echo "Compiling glow shader -> $METALLIB_OUT"
+if xcrun -sdk macosx metal -std=metal3.0 -c "$METAL_SRC" -o /tmp/glowfield.air 2>/tmp/glowfield.metal.log \
+   && xcrun -sdk macosx metallib /tmp/glowfield.air -o "$METALLIB_OUT" 2>>/tmp/glowfield.metal.log; then
+    echo "  metallib OK ($(du -h "$METALLIB_OUT" | cut -f1))"
+else
+    echo "  WARNING: metallib compile failed — app will use FlowingGradient fallback."
+    echo "  See /tmp/glowfield.metal.log"
+    rm -f "$METALLIB_OUT"
+fi
+
 # Code-signing strategy depends on what the build is for.
 #
 # MURMUR_RELEASE=1 → ad-hoc signature (`codesign --sign -`). Use this

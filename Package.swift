@@ -15,6 +15,7 @@ let package = Package(
                 "CWhisper",
             ],
             path: "Sources/Murmur",
+            resources: [.process("Shaders")],
             linkerSettings: [
                 .unsafeFlags([
                     "-L", "lib",
