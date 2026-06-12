@@ -22,6 +22,12 @@ enum TextPaster {
         return CGPreflightPostEventAccess()
     }
 
+    /// Current permission status WITHOUT prompting. Drives the visible
+    /// menu warning: without this permission dictation looks fine (glow,
+    /// transcription) but auto-paste and the global Escape monitor both
+    /// fail silently at the OS level.
+    static var hasPermission: Bool { CGPreflightPostEventAccess() }
+
     /// Put the transcribed text on the clipboard and try to paste it into the
     /// frontmost app via simulated Cmd+V.
     ///

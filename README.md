@@ -158,8 +158,12 @@ cursor and the glow fades out.
 ### Recording starts, but nothing gets pasted
 
 Almost always the **post-events / Accessibility** permission Murmur needs to
-type the text into other apps via simulated Cmd+V. macOS doesn't always
-re-prompt:
+type the text into other apps via simulated Cmd+V. macOS shows the consent
+prompt **once** — if it was dismissed (or never appeared, which happens with
+ad-hoc-signed apps), the system silently denies forever until you enable it
+manually. When the permission is missing, the Murmur menu shows a warning
+item — **"No paste permission — open System Settings"** — click it, or go
+manually:
 
 1. **System Settings → Privacy & Security → Accessibility** (on App Store
    builds this may appear under **Input Monitoring**).
@@ -168,7 +172,16 @@ re-prompt:
 3. Quit and relaunch Murmur from the menu.
 
 Either way, the transcribed text is always left on the clipboard, so you can
-paste it manually with Cmd+V if the automatic paste didn't land.
+paste it manually with Cmd+V if the automatic paste didn't land. That's also
+the quick diagnosis: dictate, then press Cmd+V — if your words paste, whisper
+works fine and only this permission is missing.
+
+### Escape doesn't cancel the recording
+
+Same permission as above. The global Escape listener only receives keystrokes
+when Murmur is trusted in **Accessibility** — without it, macOS feeds Escape
+to the frontmost app only and Murmur never sees it. Grant the permission (see
+the previous section) and Escape cancel starts working together with paste.
 
 ### Microphone error or no audio detected
 

@@ -93,6 +93,16 @@ class AppState: ObservableObject {
     /// supported, English otherwise; persisted across launches.
     @Published var transcriptionLanguage: TranscriptionLanguage = .systemDefault
 
+    /// Whether macOS lets us synthesize Cmd+V (the post-events /
+    /// Accessibility permission). When false, dictation still "works" —
+    /// the text lands on the clipboard — but auto-paste AND the global
+    /// Escape monitor are both dead, and both fail silently at the OS
+    /// level. The menu shows a warning with an "open Settings" action
+    /// driven by this flag. Refreshed at setup, on every hotkey toggle
+    /// and after every paste attempt, so granting the permission clears
+    /// the warning on next use without restarting the app.
+    @Published var canPostEvents: Bool = true
+
     /// Human-readable label for the active hotkey ("⌘⇧Space"), for the menu.
     var hotkeyLabel: String { hotkeyCombo.resolved.label }
 
@@ -384,6 +394,7 @@ class AppState: ObservableObject {
         // Under App Sandbox this is the sandbox-compatible alternative to full
         // Accessibility (which the sandbox forbids). Prompts on first run.
         let postEventGranted = TextPaster.ensurePermission()
+        canPostEvents = postEventGranted
         mlog("setup: PostEvent permission = \(postEventGranted)")
 
         // Register the global hotkey from the saved preset (default ⌘⇧Space).
@@ -432,9 +443,31 @@ class AppState: ObservableObject {
         state = .idle
     }
 
+    /// Menu action for the missing-permission warning. Re-triggers the
+    /// system prompt when possible (it only ever shows once — after a
+    /// dismissed prompt macOS silently denies forever), then opens the
+    /// Accessibility pane where the user flips the toggle manually. Also
+    /// the place ad-hoc-signed builds usually end up: macOS sometimes
+    /// never shows them the prompt at all, and the app must be added to
+    /// the list by hand.
+    func openPastePermissionSettings() {
+        TextPaster.ensurePermission()
+        canPostEvents = TextPaster.hasPermission
+        mlog("openPastePermissionSettings: granted=\(canPostEvents)")
+        guard !canPostEvents else { return }
+        if let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func toggle() async {
         let currentState = "\(self.state)"
         mlog("Toggle called, state: \(currentState)")
+        // Cheap TCC preflight (no prompt) — keeps the menu warning in sync
+        // if the user granted/revoked the permission since the last check.
+        canPostEvents = TextPaster.hasPermission
         switch state {
         case .idle:
             state = .recording
@@ -486,6 +519,7 @@ class AppState: ObservableObject {
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
                 TextPaster.paste(text)
+                canPostEvents = TextPaster.hasPermission
                 // Mark the active model as "used today" so it survives the
                 // next stale-model sweep on startup.
                 touchLastUsed(activeModel)

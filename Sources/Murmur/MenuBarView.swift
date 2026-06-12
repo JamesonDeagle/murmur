@@ -10,6 +10,26 @@ struct MenuBarView: View {
 
     var body: some View {
         Group {
+            // Visible alarm for the silent failure mode: without the
+            // post-events permission dictation LOOKS fine (glow shows,
+            // whisper transcribes) but auto-paste and the global Escape
+            // monitor are both dead with zero feedback from the OS. One
+            // click re-triggers the system prompt when possible and opens
+            // the right Settings pane.
+            if !appState.canPostEvents {
+                Button {
+                    appState.openPastePermissionSettings()
+                } label: {
+                    Label(t("No paste permission — open System Settings",
+                          ru: "Нет разрешения на вставку — открыть Настройки"),
+                          systemImage: "exclamationmark.triangle.fill")
+                }
+                Text(t("Until granted: text stays on the clipboard (paste with Cmd+V); Escape cancel won't work either",
+                     ru: "Пока не выдано: текст остаётся в буфере (вставьте Cmd+V); Escape-отмена тоже не работает"))
+                    .disabled(true)
+                Divider()
+            }
+
             switch appState.state {
             case .loading:
                 if let p = appState.downloadProgress {
