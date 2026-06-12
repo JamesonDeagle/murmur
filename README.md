@@ -285,10 +285,10 @@ Single executable, ~10 Swift files in `Sources/Murmur/`, statically linked
 against whisper.cpp + ggml libs in `lib/`.
 
 ```
-Cmd+Shift+Space → AppState.toggle()
+Option+Space → AppState.toggle()
   → AudioRecorder.start()           [AVAudioEngine, 44.1 kHz mono]
   → ... user speaks ...
-Cmd+Shift+Space → AudioRecorder.stop()
+Option+Space → AudioRecorder.stop()
   → resample 44.1 k → 16 k, normalize peak to 0.9
   → (any SpeechEngine).transcribe() ── WhisperEngine [whisper.cpp + Metal GPU]
   → TextPaster.paste()               [NSPasteboard + simulated Cmd+V]
@@ -301,7 +301,7 @@ Cmd+Shift+Space → AudioRecorder.stop()
 | `AudioRecorder` | AVAudioEngine capture, resample, normalize | Audio thread + `NSLock` |
 | `SpeechEngine` (protocol) | `loadModel` / `transcribe` / `cleanup` contract | — |
 | `WhisperEngine` | whisper.cpp C API wrapper (turbo / large) | Swift `actor` |
-| `HotkeyManager` | Carbon `RegisterEventHotKey` (configurable, default ⌘⇧Space) | Event thread |
+| `HotkeyManager` | Carbon `RegisterEventHotKey` (configurable, default ⌥Space, auto-fallback ⌘⇧Space) | Event thread |
 | `TextPaster` | `NSPasteboard` + `CGEvent` Cmd+V (gated on `CGPreflightPostEventAccess`) | `@MainActor` |
 | `InputDeviceManager` | CoreAudio input device enumeration | — |
 | `WaveformView` / `WaveformOverlay` | Liquid Glass UI + `NSPanel` | `@MainActor` |
@@ -317,7 +317,7 @@ State machine:
 ```
 .loading ──► .idle ◄──► .paused
               │
-              ▼ Cmd+Shift+Space
+              ▼ Option+Space
           .recording ──► .transcribing ──► .idle
               │
               ▼ Escape
