@@ -71,6 +71,15 @@ class WaveformPanel: ObservableObject {
     private var panelHeight: CGFloat = 130
 
     private let showAnimation: Animation = .easeOut(duration: 0.22)
+    /// Island (no physical notch) gets its own show animation: an
+    /// emphasized-decelerate Bezier — fast start, most of the duration
+    /// spent settling — so the island visibly "slides out of the edge
+    /// and eases to a stop" instead of the near-linear pop the stock
+    /// `.easeOut(0.22)` gave. 0.3 s after live feedback: 0.45 s felt
+    /// sluggish once the slide+scale combo was in. The real-notch glow
+    /// keeps the quick fade — there is no body movement to sell there.
+    private let islandShowAnimation: Animation =
+        .timingCurve(0.05, 0.7, 0.1, 1, duration: 0.3)
     private let hideAnimation: Animation = .easeOut(duration: 0.18)
     private let hideAnimationDuration: TimeInterval = 0.18
 
@@ -87,7 +96,9 @@ class WaveformPanel: ObservableObject {
         mode = .recording
         smoothedLevel = 0
         panel?.orderFront(nil)
-        withAnimation(showAnimation) {
+        // hasNotch is fresh here — repositionPanel() above just probed
+        // the screen the cursor is on.
+        withAnimation(hasNotch ? showAnimation : islandShowAnimation) {
             isVisible = true
         }
     }

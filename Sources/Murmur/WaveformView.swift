@@ -336,17 +336,21 @@ struct WaveformView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-                // Island mode additionally scales from the top edge, so
-                // the black body looks like it slides out of the screen
-                // edge instead of materialising mid-air. On a real notch
-                // a pure fade is right — the "body" is hardware and
-                // scaling the glow alone would look detached.
+                // Island mode slides DOWN from behind the screen edge —
+                // the content starts offset upward by the island's height
+                // (plus a little slack for the glow's crisp line below it),
+                // where the panel, flush with the screen top, clips it —
+                // with a gentle scale-up layered on top. The scale starts
+                // at 0.75, not lower: a 0.4 start was tried and rejected
+                // (reads as "growing from too small a state" instead of an
+                // accent on the slide). On a real notch a pure fade is
+                // right — the "body" is hardware and can't move.
                 .transition(
                     panel.hasNotch
                         ? AnyTransition.opacity
-                        : AnyTransition.opacity.combined(
-                            with: .scale(scale: 0.4, anchor: .top)
-                        )
+                        : AnyTransition.opacity
+                            .combined(with: .offset(y: -(panel.topInset + 12)))
+                            .combined(with: .scale(scale: 0.75, anchor: .top))
                 )
                 .onAppear {
                     // Reset all @State that drives the visuals to match
