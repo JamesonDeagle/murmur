@@ -32,12 +32,15 @@ enum RecordingState {
 
 /// User-selectable global hotkey presets.
 ///
-/// macOS 15+ rejects `RegisterEventHotKey` for combos whose only modifiers are
-/// Option and/or Shift (error -9868, FB15168205), so every preset is anchored
-/// on Cmd or Control. We deliberately avoid Control+Option+Space — that's the
-/// system shortcut for switching the input source / keyboard layout.
+/// Option+Space is the historical Murmur default and works on this macOS 26
+/// machine. Some macOS 15.x builds reject `RegisterEventHotKey` for combos
+/// whose only modifiers are Option and/or Shift (error -9868, FB15168205) —
+/// `AppState.registerHotkey` checks the registration result and silently
+/// falls back to Cmd+Shift+Space on such systems. We deliberately avoid
+/// Control+Option+Space — that's the system input-source switcher.
 enum HotkeyCombo: String, CaseIterable, Sendable, Identifiable {
-    case cmdShiftSpace   // ⌘⇧Space — default
+    case optionSpace     // ⌥Space — default (auto-fallback to ⌘⇧Space if OS refuses)
+    case cmdShiftSpace   // ⌘⇧Space
     case ctrlShiftSpace  // ⌃⇧Space
     case cmdShiftD       // ⌘⇧D
 
@@ -46,6 +49,8 @@ enum HotkeyCombo: String, CaseIterable, Sendable, Identifiable {
     /// Carbon modifier mask, virtual key code, and the label shown in the UI.
     var resolved: (modifiers: UInt32, keyCode: UInt32, label: String) {
         switch self {
+        case .optionSpace:
+            return (UInt32(optionKey), 49, "⌥Space")
         case .cmdShiftSpace:
             return (UInt32(cmdKey | shiftKey), 49, "⌘⇧Space")
         case .ctrlShiftSpace:
@@ -56,9 +61,9 @@ enum HotkeyCombo: String, CaseIterable, Sendable, Identifiable {
     }
 
     /// Map a stored UserDefaults raw value back to a preset, defaulting to
-    /// `.cmdShiftSpace` for anything unrecognized (forward-compat / corruption).
+    /// `.optionSpace` for anything unrecognized (forward-compat / corruption).
     static func resolve(_ raw: String?) -> HotkeyCombo {
-        guard let raw, let combo = HotkeyCombo(rawValue: raw) else { return .cmdShiftSpace }
+        guard let raw, let combo = HotkeyCombo(rawValue: raw) else { return .optionSpace }
         return combo
     }
 }
@@ -330,12 +335,29 @@ class AppState: ObservableObject {
     /// (Re)register the global hotkey from the current `hotkeyCombo`.
     private func registerHotkey() {
         let r = hotkeyCombo.resolved
-        HotkeyManager.shared.register(modifiers: r.modifiers, keyCode: r.keyCode) { [weak self] in
+        let onToggle: () -> Void = { [weak self] in
             Task { @MainActor in
                 await self?.toggle()
             }
         }
-        mlog("registerHotkey: \(r.label)")
+        if HotkeyManager.shared.register(modifiers: r.modifiers, keyCode: r.keyCode, onToggle: onToggle) {
+            mlog("registerHotkey: \(r.label)")
+            return
+        }
+        // The OS refused the combo (some macOS 15.x builds reject Option/
+        // Shift-only hotkeys, FB15168205). Fall back to Cmd+Shift+Space so
+        // dictation keeps working; reflect the change in the menu but do NOT
+        // persist it — on an OS where the user's preferred combo works again,
+        // it comes back automatically.
+        let fallback = HotkeyCombo.cmdShiftSpace
+        let f = fallback.resolved
+        if hotkeyCombo != fallback,
+           HotkeyManager.shared.register(modifiers: f.modifiers, keyCode: f.keyCode, onToggle: onToggle) {
+            mlog("registerHotkey: OS refused \(r.label), fell back to \(f.label)")
+            hotkeyCombo = fallback
+        } else {
+            mlog("registerHotkey: FAILED for \(r.label) and fallback — global hotkey inactive")
+        }
     }
 
     func startSetup() {

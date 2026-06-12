@@ -8,14 +8,16 @@ final class HotkeyManager: @unchecked Sendable {
 
     static let shared = HotkeyManager()
 
-    func register(modifiers: UInt32 = UInt32(cmdKey | shiftKey), keyCode: UInt32 = 49, onToggle: @escaping () -> Void) {
-        // keyCode 49 = Space. Default Cmd+Shift+Space.
-        //
-        // macOS 15+ (FB15168205) refuses RegisterEventHotKey for combos whose
-        // modifiers are only Option and/or Shift — it returns -9868 and the
-        // hotkey never fires. The combo must include Cmd or Control. We default
-        // to Cmd+Shift+Space; AppState's HotkeyCombo presets keep it on a
-        // Cmd/Control-anchored whitelist.
+    /// Register a global hotkey. Returns true when the system accepted it.
+    ///
+    /// Some macOS 15.x builds (FB15168205) refuse RegisterEventHotKey for
+    /// combos whose modifiers are only Option and/or Shift (returns -9868).
+    /// On this machine (macOS 26) Option+Space registers fine, so it stays the
+    /// product default — the caller (AppState.registerHotkey) checks the return
+    /// value and falls back to Cmd+Shift+Space when the OS says no.
+    @discardableResult
+    func register(modifiers: UInt32 = UInt32(optionKey), keyCode: UInt32 = 49, onToggle: @escaping () -> Void) -> Bool {
+        // keyCode 49 = Space. Default Option+Space.
         self.onToggle = onToggle
         unregister()
 
@@ -41,7 +43,12 @@ final class HotkeyManager: @unchecked Sendable {
             &eventHandler
         )
 
-        RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotkeyRef)
+        let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotkeyRef)
+        if status != noErr {
+            mlog("HotkeyManager: RegisterEventHotKey failed (\(status)) for modifiers=\(modifiers) keyCode=\(keyCode)")
+            hotkeyRef = nil
+        }
+        return status == noErr
     }
 
     func unregister() {
