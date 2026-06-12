@@ -12,9 +12,11 @@ import AppKit
 /// (the two thin rails to the left and right, and the wider arc below).
 /// To the eye that reads as the notch itself emitting light.
 ///
-/// On notch-less Macs (Mac mini, Studio, Air without notch) the same
-/// rounded pill of glow sits at the top edge — looks intentional, like a
-/// soft status indicator instead of an "outline of nothing".
+/// On screens without a physical notch (external monitors, pre-2021
+/// MacBooks, or a scaled mode letterboxed below the camera) the view
+/// additionally draws a solid-black "Dynamic Island" body for the glow
+/// to wrap — see `hasNotch` — so the contour outlines a real shape
+/// instead of empty desktop.
 @MainActor
 class WaveformPanel: ObservableObject {
     private var panel: NSPanel?
@@ -36,10 +38,16 @@ class WaveformPanel: ObservableObject {
 
     /// Physical notch size — `topInset` is the notch height, `notchWidth`
     /// is the gap between `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`.
-    /// On notch-less Macs both fall back to plausible defaults so the glow
-    /// has a sensible footprint to wrap.
+    /// On notch-less screens these describe the synthetic island instead.
     @Published var topInset: CGFloat = 32
     @Published var notchWidth: CGFloat = 200
+    /// Whether the target screen has a physical camera notch. When it
+    /// doesn't, WaveformView draws a solid-black Dynamic-Island body under
+    /// the glow — without it the stroke would outline an invisible
+    /// rectangle in the middle of the menu bar. Recomputed per show() for
+    /// the screen the cursor is on, so dragging between the built-in
+    /// display and an external monitor switches modes per dictation.
+    @Published var hasNotch: Bool = true
 
     /// Extra space the NSPanel needs around the notch for the blurred
     /// stroke to render without clipping. The glow's `blur(radius:)` can
@@ -48,8 +56,15 @@ class WaveformPanel: ObservableObject {
     private let glowPaddingSides: CGFloat = 200
     private let glowPaddingBottom: CGFloat = 200
 
-    /// Fallback for Macs without a physical notch.
-    private let fallbackWidth: CGFloat = 200
+    /// Island geometry for screens without a physical notch. Width copies
+    /// the real MBP 16" notch at default scaling (185 pt — also
+    /// boring.notch's fallback), so the island reads as "the notch
+    /// appeared here" rather than a foreign pill. Height tracks the menu
+    /// bar of the target screen; the fallback covers a hidden menu bar
+    /// (auto-hide setting / fullscreen space), where
+    /// `frame.maxY - visibleFrame.maxY` collapses to 0.
+    private let islandWidth: CGFloat = 185
+    private let islandFallbackHeight: CGFloat = 30
 
     /// Computed in `repositionPanel()` and read by NSPanel.setFrame.
     private var panelWidth: CGFloat = 320
@@ -148,8 +163,23 @@ class WaveformPanel: ObservableObject {
                         ?? NSScreen.screens.first else { return }
 
         let f = screen.frame
-        topInset = max(24, f.maxY - screen.visibleFrame.maxY)
-        notchWidth = Self.physicalNotchWidth(of: screen) ?? fallbackWidth
+        if let notch = Self.physicalNotchGeometry(of: screen) {
+            hasNotch = true
+            notchWidth = notch.width
+            // safeAreaInsets.top, not the menu-bar gap: the gap collapses
+            // to 0 when the menu bar hides (fullscreen space / auto-hide),
+            // while the physical cutout obviously stays where it is.
+            topInset = notch.height
+        } else {
+            hasNotch = false
+            notchWidth = islandWidth
+            // Match the menu-bar height of THIS screen (30 pt on Tahoe
+            // external displays, 24-25 pt on earlier macOS) so the island
+            // merges with the bar; guard against the hidden-menu-bar zero
+            // and clamp exotic values to the plausible notch range.
+            let gap = f.maxY - screen.visibleFrame.maxY
+            topInset = gap >= 20 ? min(gap, 38) : islandFallbackHeight
+        }
         panelWidth = notchWidth + glowPaddingSides * 2
         panelHeight = topInset + glowPaddingBottom
 
@@ -162,18 +192,29 @@ class WaveformPanel: ObservableObject {
         )
     }
 
-    /// Width of the MacBook camera notch on `screen`, or nil if this Mac
-    /// has no notch. macOS 12+ exposes `auxiliaryTopLeftArea` /
-    /// `auxiliaryTopRightArea` — the menu-bar rectangles to the LEFT and
-    /// RIGHT of the notch. The gap between them is the notch itself.
-    private static func physicalNotchWidth(of screen: NSScreen) -> CGFloat? {
-        guard let leftArea = screen.auxiliaryTopLeftArea,
+    /// Size of the MacBook camera notch on `screen`, or nil if this screen
+    /// has none. The canonical presence signal is `safeAreaInsets.top > 0`
+    /// (macOS 12+, same check as Ice / NotchDrop / boring.notch);
+    /// `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` are non-nil exactly
+    /// when that inset is non-zero and give the menu-bar rectangles to the
+    /// LEFT and RIGHT of the notch — the gap between them is the notch
+    /// width. Both dimensions depend on the user's scaled resolution
+    /// (height 22-38 pt, width ~127-220 pt), hence the sanity window
+    /// instead of constants. A notched MacBook letterboxed below the
+    /// camera by a 16:10 scaled mode reports zero insets — which correctly
+    /// routes us to island mode, since no physical notch is visible there.
+    private static func physicalNotchGeometry(
+        of screen: NSScreen
+    ) -> (width: CGFloat, height: CGFloat)? {
+        let inset = screen.safeAreaInsets.top
+        guard inset > 0,
+              let leftArea = screen.auxiliaryTopLeftArea,
               let rightArea = screen.auxiliaryTopRightArea else {
             return nil
         }
         let width = screen.frame.width - leftArea.width - rightArea.width
         guard width > 100, width < 300 else { return nil }
-        return width
+        return (width, inset)
     }
 
     private func screenWithMouse() -> NSScreen? {

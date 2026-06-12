@@ -22,7 +22,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.23.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.24.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **First-launch step** *(important — macOS will block a double-click)*:
    - Open Finder → `Applications`.
@@ -93,8 +93,10 @@ While recording, an **ambient light glow** wraps the perimeter of the
 MacBook notch — pink, white, yellow, cyan flowing left-to-right along the
 contour. The flow speed and the glow's brightness both scale with how loud
 you talk: paused = a slow shimmer barely-there, mid-sentence = a brisk
-stream, shouting = a bright wide halo. On Macs without a notch the same
-shape sits at the very top edge as a soft status indicator.
+stream, shouting = a bright wide halo. On screens without a notch —
+external monitors, pre-2021 MacBooks — a black **Dynamic Island** slides
+out of the top edge for the duration of the dictation, and the same glow
+wraps around it.
 
 When you stop, the palette **morphs smoothly** to blue-and-white
 (`easeInOut`, 0.55s) and the flow settles to a steady moderate pace while
@@ -117,6 +119,11 @@ cursor and the glow fades out.
 - **Microphone selector** — defaults to built-in mic; doesn't get confused by
   Bluetooth speakers or virtual devices
 - **Multi-monitor aware** — overlay always lands on the screen with your cursor
+- **Dynamic Island on notch-less screens** *(new in v3.24)* — on external
+  monitors and pre-2021 MacBooks a black island (185 pt, sized to the menu
+  bar, with the real notch's concave top-corner flares) slides out of the
+  top edge while you dictate, and the same morphing glow wraps its contour.
+  Appears only during dictation — no permanent fake notch on your monitor
 - **Siri-grade morphing glow around the notch** *(new in v3.23)* — a
   Metal-shader colour field (domain-warped fBM) renders organically
   morphing light blobs along the notch contour: a continuous glowing

@@ -84,8 +84,10 @@ enum GlowShaderSupport {
 /// (currently `notchWidth + 320 × topInset + 170`). The notch occupies
 /// the top-centre, so the glow's blurred stroke is only visible **around
 /// the notch's lower contour** — two side rails plus a wide arc below.
-/// On notch-less Macs the same shape sits at the top edge as a soft
-/// status indicator.
+/// On screens without a physical notch (`panel.hasNotch == false`) a
+/// solid-black Dynamic-Island body is drawn on top of the strokes'
+/// inner halves, so the same glow wraps a visible black "notch" that
+/// slides out of the screen edge for the duration of the dictation.
 ///
 /// While **recording**: colours flow **left → right** along the contour
 /// (pink starts at the left, drifts right, mixes with white/yellow/cyan).
@@ -206,6 +208,16 @@ struct WaveformView: View {
     /// MacBook notch (~8 pt on M-series) so the curve follows the
     /// hardware edge instead of cutting across it.
     private let glowBottomCornerRadius: CGFloat = 8
+    /// Bottom corner radius of the Dynamic-Island body drawn on screens
+    /// without a physical notch. Larger than the real notch's 8 pt —
+    /// prior-art islands (~30 pt tall) read best at 10-14 pt — but well
+    /// below height/2, so the shape stays notch-like, not pill-like.
+    private let islandBottomCornerRadius: CGFloat = 12
+    /// Outward "flare" of the island's top corners — the small CONCAVE
+    /// fillet the real MacBook notch has where its vertical sides meet
+    /// the screen edge. Without it the island joins the monitor edge at
+    /// a sharp 90° and reads as a pasted-on rectangle.
+    private let islandTopFlareRadius: CGFloat = 4
 
     /// Soft dark scrim under the colour glow. A wide blurred black
     /// stroke along the notch contour darkens whatever is behind it
@@ -324,7 +336,18 @@ struct WaveformView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-                .transition(.opacity)
+                // Island mode additionally scales from the top edge, so
+                // the black body looks like it slides out of the screen
+                // edge instead of materialising mid-air. On a real notch
+                // a pure fade is right — the "body" is hardware and
+                // scaling the glow alone would look detached.
+                .transition(
+                    panel.hasNotch
+                        ? AnyTransition.opacity
+                        : AnyTransition.opacity.combined(
+                            with: .scale(scale: 0.4, anchor: .top)
+                        )
+                )
                 .onAppear {
                     // Reset all @State that drives the visuals to match
                     // the current panel.mode at the start of each new
@@ -372,13 +395,22 @@ struct WaveformView: View {
         let stroke = baseStroke + strokeGain * intensity
         let blur = baseBlur + blurGain * intensity
 
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: glowBottomCornerRadius,
-            bottomTrailingRadius: glowBottomCornerRadius,
-            topTrailingRadius: 0,
-            style: .continuous
-        )
+        // Real notch keeps the plain open-top contour (the hardware hides
+        // the top anyway). The island uses a custom shape with concave
+        // top-corner flares so it merges into the screen edge like the
+        // real notch does, instead of meeting it at a sharp 90°.
+        let shape: AnyShape = panel.hasNotch
+            ? AnyShape(UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: glowBottomCornerRadius,
+                bottomTrailingRadius: glowBottomCornerRadius,
+                topTrailingRadius: 0,
+                style: .continuous
+            ))
+            : AnyShape(IslandShape(
+                topFlare: islandTopFlareRadius,
+                bottomRadius: islandBottomCornerRadius
+            ))
 
         let shapeW = panel.notchWidth + glowExtraSides * 2
         let shapeH = panel.topInset + glowExtraBottom
@@ -453,6 +485,23 @@ struct WaveformView: View {
                     .frame(width: outerW, height: outerH, alignment: .top)
             )
             .blur(radius: blur * 0.26)
+
+            // Dynamic-Island body — screens without a physical notch only.
+            // Drawn LAST so it covers the inner half of both glow strokes:
+            // `stroke()` centres on the path, and on a real notch that
+            // inner half is hidden by the hardware bezel. Painting black
+            // on top reproduces the same occlusion, so the island reads as
+            // a solid black notch with light around it, not a rectangle
+            // with glowing inner rims. Deliberately NO shadow here: a soft
+            // dark edge over the additive glow re-creates the "dirty halo"
+            // class of bug the scrim tuning fought — the scrim plus the
+            // glow itself already separate the island from any backdrop.
+            if !panel.hasNotch {
+                shape
+                    .fill(.black)
+                    .frame(width: shapeW, height: shapeH, alignment: .top)
+                    .frame(width: outerW, height: outerH, alignment: .top)
+            }
         }
         // Rasterize the whole glow subtree (two shader fills, two stroke
         // masks, three Gaussian blurs) into one offscreen Metal texture per
@@ -650,6 +699,57 @@ struct WaveformView: View {
         fieldTime = (fieldTime + dt * speed).truncatingRemainder(
             dividingBy: fieldTimeWrap
         )
+    }
+}
+
+// MARK: - IslandShape
+
+/// Dynamic-Island contour for screens without a physical notch: flat top
+/// flush with the screen edge, convex rounded bottom corners, and small
+/// **concave** flares where the vertical sides meet the top edge — the
+/// same fillet the real MacBook notch has, so the island flows out of
+/// the monitor edge instead of sitting on it as a sharp-cornered box.
+///
+/// `rect` is the island BODY; the flares extend `topFlare` pt *outside*
+/// rect on each side (SwiftUI shapes don't clip their path to bounds, and
+/// the callers place this inside a much larger blur-spill frame anyway).
+/// Quad curves with the sharp corner as control point are used instead of
+/// `addArc` — same visual result, none of the flipped-coordinate angle
+/// pitfalls.
+private struct IslandShape: Shape {
+    var topFlare: CGFloat
+    var bottomRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        // Start on the screen edge, left of the body, at the flare's
+        // outer end; close along the top edge at the end.
+        p.move(to: CGPoint(x: rect.minX - topFlare, y: rect.minY))
+        // Top-left flare: concave quarter-curve into the left side.
+        p.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.minY + topFlare),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - bottomRadius))
+        // Bottom-left corner (convex).
+        p.addQuadCurve(
+            to: CGPoint(x: rect.minX + bottomRadius, y: rect.maxY),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        p.addLine(to: CGPoint(x: rect.maxX - bottomRadius, y: rect.maxY))
+        // Bottom-right corner (convex).
+        p.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.maxY - bottomRadius),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + topFlare))
+        // Top-right flare: concave quarter-curve out to the screen edge.
+        p.addQuadCurve(
+            to: CGPoint(x: rect.maxX + topFlare, y: rect.minY),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        p.closeSubpath()
+        return p
     }
 }
 
