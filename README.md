@@ -22,7 +22,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.24.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.25.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **First-launch step** *(important — macOS will block a double-click)*:
    - Open Finder → `Applications`.
