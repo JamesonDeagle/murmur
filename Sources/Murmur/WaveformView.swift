@@ -225,19 +225,25 @@ struct WaveformView: View {
     /// the same contrast on any backdrop. Without this, on white
     /// pages the glow nearly disappears.
     ///
-    /// Stroke is fat (24 pt) so the scrim body has presence even after
-    /// blur. Blur is moderate (35 pt) so the darkening stays
-    /// concentrated near the notch instead of fading into invisibility
-    /// across 200 pt of falloff. Baseline opacity is high enough to be
-    /// clearly visible on white (≈48% black → mid-grey rim).
-    // Scrim toned way down in v3.23: under the dense v3.21 gradient it was
-    // invisible, but the additive neon field is semi-transparent between
-    // blobs and the black shadow showed through as "dirty dark" patches.
-    // Keep just enough to lift the glow off bright backdrops.
-    private let scrimStroke: CGFloat = 26
+    /// Stroke is fat so the scrim body has presence even after blur; blur
+    /// is moderate so the darkening stays concentrated near the notch
+    /// instead of fading into invisibility across 200 pt of falloff.
+    //
+    // History: v3.21 ran the scrim hot (~0.48) but the dense gradient hid
+    // it; v3.23 toned it way down (0.20) because the additive neon field
+    // is semi-transparent between blobs and raw black showed through as
+    // "dirty dark" patches. v3.26 re-raises it — on white backdrops the
+    // 0.20 scrim left the glow nearly invisible (user report) — but ties
+    // it MUCH harder to `intensity` (gain ≫ base). That makes the scrim a
+    // *shadow of the glow*: when you speak and the glow blooms, the dark
+    // bed blooms with it (strong contrast on white); at silence it stays
+    // faint, so it never reads as an independent dirty cloud. The shader's
+    // continuous colour base (alpha floor 0.40) also means the glow always
+    // tints over the scrim now, so raw black no longer shows through.
+    private let scrimStroke: CGFloat = 32
     private let scrimBlur: CGFloat = 40
-    private let scrimBaseOpacity: CGFloat = 0.20
-    private let scrimIntensityGain: CGFloat = 0.10
+    private let scrimBaseOpacity: CGFloat = 0.34
+    private let scrimIntensityGain: CGFloat = 0.54
 
     /// How far the **blur halo** is allowed to spill past the glow
     /// shape's rectangle. Both the FlowingGradient fill and the mask
