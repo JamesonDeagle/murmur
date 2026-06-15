@@ -13,9 +13,12 @@ struct MenuBarView: View {
             // Visible alarm for the silent failure mode: without the
             // post-events permission dictation LOOKS fine (glow shows,
             // whisper transcribes) but auto-paste and the global Escape
-            // monitor are both dead with zero feedback from the OS. One
-            // click re-triggers the system prompt when possible and opens
-            // the right Settings pane.
+            // monitor are both dead with zero feedback from the OS.
+            //
+            // TWO actions because granting is a two-step dance: macOS
+            // applies the permission only at launch, so after the user
+            // ticks the box they MUST relaunch (see AppState.canPostEvents).
+            // Button 1 opens Settings; button 2 relaunches to apply it.
             if !appState.canPostEvents {
                 Button {
                     appState.openPastePermissionSettings()
@@ -24,8 +27,15 @@ struct MenuBarView: View {
                           ru: "Нет разрешения на вставку — открыть Настройки"),
                           systemImage: "exclamationmark.triangle.fill")
                 }
-                Text(t("Until granted: text stays on the clipboard (paste with Cmd+V); Escape cancel won't work either",
-                     ru: "Пока не выдано: текст остаётся в буфере (вставьте Cmd+V); Escape-отмена тоже не работает"))
+                Button {
+                    appState.relaunch()
+                } label: {
+                    Label(t("Restart Murmur to apply the grant",
+                          ru: "Перезапустить Murmur, чтобы применить"),
+                          systemImage: "arrow.clockwise.circle")
+                }
+                Text(t("Tick Murmur in Accessibility, then Restart — macOS only applies it on launch. Until then text stays on the clipboard (Cmd+V) and Escape cancel is off.",
+                     ru: "Включите Murmur в «Универсальном доступе», затем «Перезапустить» — macOS применяет разрешение только при запуске. Пока что текст остаётся в буфере (Cmd+V), Escape-отмена не работает."))
                     .disabled(true)
                 Divider()
             }

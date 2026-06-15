@@ -97,10 +97,17 @@ class AppState: ObservableObject {
     /// Accessibility permission). When false, dictation still "works" —
     /// the text lands on the clipboard — but auto-paste AND the global
     /// Escape monitor are both dead, and both fail silently at the OS
-    /// level. The menu shows a warning with an "open Settings" action
-    /// driven by this flag. Refreshed at setup, on every hotkey toggle
-    /// and after every paste attempt, so granting the permission clears
-    /// the warning on next use without restarting the app.
+    /// level. The menu shows a warning driven by this flag.
+    ///
+    /// CRITICAL (bug fix): macOS applies PostEvent/Accessibility access
+    /// **only at process launch**. `CGPreflightPostEventAccess()` keeps
+    /// returning false in a running process even after the user ticks the
+    /// box in System Settings — the grant is picked up only on the next
+    /// launch. So re-checking this flag at toggle/paste can reliably
+    /// detect permission *loss* (e.g. a new build's cdhash invalidated the
+    /// grant) but NOT a fresh *grant*. The earlier "clears without restart"
+    /// promise was wrong; the warning now tells the user to restart and
+    /// offers a one-click relaunch (`relaunch()`).
     @Published var canPostEvents: Bool = true
 
     /// Human-readable label for the active hotkey ("⌘⇧Space"), for the menu.
@@ -459,6 +466,30 @@ class AppState: ObservableObject {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         ) {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Relaunch the app — the only way to pick up a freshly-granted
+    /// PostEvent/Accessibility permission (macOS applies it at launch, see
+    /// `canPostEvents`). Launches a brand-new instance and quits this one.
+    ///
+    /// We spawn the new instance with `createsNewApplicationInstance` so
+    /// macOS doesn't just re-activate the dying process, then terminate
+    /// ourselves from the completion handler so the new one is already
+    /// coming up. `NSWorkspace.openApplication` is used (not a shell
+    /// `open`) so this also works under App Sandbox in the MAS build.
+    /// Mirrors the Quit button's teardown (unregister hotkey, free engine).
+    func relaunch() {
+        mlog("relaunch: launching fresh instance + terminating pid \(ProcessInfo.processInfo.processIdentifier)")
+        HotkeyManager.shared.unregister()
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+            if let error { mlog("relaunch: openApplication error: \(error.localizedDescription)") }
+            DispatchQueue.main.async {
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 

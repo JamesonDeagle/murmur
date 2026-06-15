@@ -25,8 +25,8 @@ BUNDLE_ID="com.deagle.murmur"
 ENTITLEMENTS="Murmur.entitlements"
 APP="Murmur.app"
 PKG="Murmur.pkg"
-SHORT_VERSION="3.25"
-BUILD_VERSION="3.25.0"
+SHORT_VERSION="3.26"
+BUILD_VERSION="3.26.0"
 
 # Профиль можно переопределить переменной окружения:
 #   PROVISION_PROFILE=/path/to/profile.provisionprofile ./build-mas.sh

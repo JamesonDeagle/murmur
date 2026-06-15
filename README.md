@@ -22,7 +22,7 @@
 
 ## Quick start (60 seconds)
 
-1. **Download** `Murmur-3.25.dmg` from [Releases](../../releases).
+1. **Download** `Murmur-3.26.dmg` from [Releases](../../releases).
 2. **Drag** `Murmur.app` to your `Applications` folder.
 3. **First-launch step** *(important — macOS will block a double-click)*:
    - Open Finder → `Applications`.
@@ -169,12 +169,29 @@ manually:
    builds this may appear under **Input Monitoring**).
 2. Toggle **Murmur** ON. If it isn't in the list, click **+** and add
    `/Applications/Murmur.app`.
-3. Quit and relaunch Murmur from the menu.
+3. **Restart Murmur — this is mandatory.** macOS only applies this
+   permission when the app *launches*; a running Murmur keeps failing even
+   after you tick the box. Use the menu's **"Restart Murmur to apply the
+   grant"** button (it appears right under the warning), or quit and reopen.
 
 Either way, the transcribed text is always left on the clipboard, so you can
 paste it manually with Cmd+V if the automatic paste didn't land. That's also
 the quick diagnosis: dictate, then press Cmd+V — if your words paste, whisper
 works fine and only this permission is missing.
+
+**After updating to a new version** the permission often drops on its own:
+each GitHub build is ad-hoc-signed with a different code identity, and macOS
+ties the grant to that identity, so a fresh DMG looks like a different app
+and starts ungranted. Re-tick Murmur in Accessibility and restart. If the
+toggle is stuck (an old stale entry from the previous build), reset it once
+in Terminal, then re-grant:
+
+```bash
+tccutil reset Accessibility com.deagle.murmur
+```
+
+> The permanent fix for this is a stable Developer ID signature, which keeps
+> the grant across updates — that lands with the notarized / App Store build.
 
 ### Escape doesn't cancel the recording
 
