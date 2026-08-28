@@ -123,6 +123,12 @@ class AppState: ObservableObject {
 
     let recorder = AudioRecorder()
     let waveform = WaveformPanel()
+
+    /// Live transcription pipeline. The recorder pushes 16 kHz blocks into
+    /// `audioFeed`; `transcription` drains them into the engine's session in
+    /// order and, once the feed closes, returns the finished transcript.
+    private var audioFeed: AsyncStream<[Float]>.Continuation?
+    private var transcription: Task<String?, Never>?
     private var recordingStartTime: Date?
     private let minRecordingSec: TimeInterval = 1.0
     var setupStarted = false
@@ -517,11 +523,29 @@ class AppState: ObservableObject {
                 return nil // system default
             }()
 
-            recorder.start(deviceID: deviceID) { [weak self] levels in
-                Task { @MainActor in
-                    self?.waveform.updateLevels(levels)
+            // Audio goes straight into a transcription session instead of
+            // piling up until the user stops. A single consumer task keeps
+            // the blocks in the order they were spoken.
+            let (blocks, feed) = AsyncStream<[Float]>.makeStream()
+            audioFeed = feed
+            transcription = Task { [engine] in
+                guard let engine else { return nil }
+                await engine.beginSession()
+                for await block in blocks {
+                    await engine.append(block)
                 }
+                return await engine.endSession()
             }
+
+            recorder.start(
+                deviceID: deviceID,
+                onLevels: { [weak self] levels in
+                    Task { @MainActor in
+                        self?.waveform.updateLevels(levels)
+                    }
+                },
+                onAudio: { feed.yield($0) }
+            )
 
         case .recording:
             // Accidental press protection
@@ -533,19 +557,18 @@ class AppState: ObservableObject {
             }
 
             state = .transcribing
-            let audio = recorder.stop()
-            mlog("Audio captured: \(audio.count) samples (\(Double(audio.count) / 16000.0)s)")
+            recorder.stop()
             waveform.setTranscribing()
 
-            if audio.isEmpty {
-                mlog("Empty audio, skipping transcription")
-                waveform.hide()
-                state = .idle
-                return
-            }
+            // Closing the feed is what tells the session the take is over.
+            // Whatever windows already decoded while the user was talking are
+            // kept; only the tail is left to process here.
+            audioFeed?.finish()
+            audioFeed = nil
+            let rawText = await transcription?.value ?? nil
+            transcription = nil
 
-            mlog("Transcribing...")
-            if let rawText = await engine?.transcribe(audio: audio), !rawText.isEmpty {
+            if let rawText, !rawText.isEmpty {
                 let text = Self.sanitizeTranscript(rawText)
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
@@ -581,6 +604,17 @@ class AppState: ObservableObject {
     func cancel() {
         guard state == .recording else { return }
         recorder.stop()
+        audioFeed?.finish()
+        audioFeed = nil
+        // Drop the take instead of decoding a tail nobody asked for. The
+        // consumer task ends by itself once the feed is closed.
+        if let engine, let task = transcription {
+            Task {
+                await engine.abortSession()
+                _ = await task.value
+            }
+        }
+        transcription = nil
         waveform.hide()
         state = .idle
     }
