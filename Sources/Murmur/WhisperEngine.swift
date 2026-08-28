@@ -76,11 +76,21 @@ actor WhisperEngine: SpeechEngine {
     private var gain: Float = 1
     private var gainFixed = false
     private var sessionCancelled = false
+    private var mode: TranscriptionMode = .live
     private let gate = WindowGate()
 
     func setLanguage(_ code: String) async {
         language = TranscriptionLanguage.resolve(code)
         mlog("WhisperEngine: language set to \(language.rawValue)")
+    }
+
+    /// `.afterRecording` simply never lets a window fire, so `endSession`
+    /// finds `windowsDone == 0` and decodes the whole take in one pass from
+    /// offset zero — the pre-window behaviour, not a second implementation
+    /// of it.
+    func setMode(_ mode: TranscriptionMode) async {
+        self.mode = mode
+        mlog("WhisperEngine: mode = \(mode.rawValue)")
     }
 
     init() {
@@ -186,7 +196,7 @@ actor WhisperEngine: SpeechEngine {
             buffer.append(contentsOf: samples)
         }
 
-        while buffer.count >= seekSamples + Self.windowSamples + Self.marginSamples {
+        while mode == .live, buffer.count >= seekSamples + Self.windowSamples + Self.marginSamples {
             fixGain()
             guard decode(gated: true) else { break }
         }

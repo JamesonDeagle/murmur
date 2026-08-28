@@ -32,6 +32,10 @@ protocol SpeechEngine: Actor {
     /// Dictation was cancelled — drop the take without transcribing it.
     func abortSession() async
 
+    /// Select when transcription runs relative to the recording. Engines that
+    /// can only work on a finished take ignore it.
+    func setMode(_ mode: TranscriptionMode) async
+
     /// Free the in-memory model (CPU RAM + ANE/GPU buffers). Caller is expected
     /// to drop the actor reference afterwards if a full reset is wanted.
     func cleanup() async
@@ -57,7 +61,23 @@ extension SpeechEngine {
 
     /// Default: engine has no language knob (e.g. auto-detecting backends).
     func setLanguage(_ code: String) async {}
+
+    /// Default: engine transcribes finished takes only, so there is nothing
+    /// to schedule.
+    func setMode(_ mode: TranscriptionMode) async {}
 }
+
+// MARK: - Transcription mode
+
+/// When transcription runs relative to the recording.
+///
+/// Both modes are the same code path with the same decoder settings. `live`
+/// lets the engine decode a whisper window the moment the recording contains
+/// one; `afterRecording` holds every window back until the take is over,
+/// which collapses to a single `whisper_full` over the finished buffer — what
+/// the app did before windows existed. The transcript is the same either way
+/// (see Tests/MurmurTests); what changes is how much of the work is already
+/// done by the time the user stops talking.
 
 // MARK: - Transcription languages
 
@@ -115,6 +135,30 @@ enum TranscriptionLanguage: String, CaseIterable, Sendable, Identifiable {
             return .en
         }
         return lang
+    }
+}
+
+enum TranscriptionMode: String, CaseIterable, Sendable, Identifiable {
+    /// Decode each 30 s window as soon as it has been recorded.
+    case live
+    /// Decode nothing until the user stops, then decode the take in one pass.
+    case afterRecording
+
+    var id: String { rawValue }
+
+    var menuLabel: String {
+        switch self {
+        case .live:
+            return t("While speaking  ·  experimental", ru: "Во время речи  ·  экспериментально")
+        case .afterRecording:
+            return t("After recording", ru: "После записи")
+        }
+    }
+
+    /// Unknown / missing stored value falls back to live.
+    static func resolve(_ raw: String?) -> TranscriptionMode {
+        guard let raw, let mode = TranscriptionMode(rawValue: raw) else { return .live }
+        return mode
     }
 }
 

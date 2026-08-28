@@ -93,6 +93,11 @@ class AppState: ObservableObject {
     /// supported, English otherwise; persisted across launches.
     @Published var transcriptionLanguage: TranscriptionLanguage = .systemDefault
 
+    /// When transcription runs: alongside the recording or after it. Same
+    /// transcript either way — see `TranscriptionMode`. Persisted across
+    /// launches.
+    @Published var transcriptionMode: TranscriptionMode = .live
+
     /// Whether macOS lets us synthesize Cmd+V (the post-events /
     /// Accessibility permission). When false, dictation still "works" —
     /// the text lands on the clipboard — but auto-paste AND the global
@@ -155,6 +160,10 @@ class AppState: ObservableObject {
         transcriptionLanguage = TranscriptionLanguage.resolve(UserDefaults.standard.string(forKey: "language"))
         mlog("Transcription language: \(transcriptionLanguage.rawValue)")
 
+        // Restore transcription mode. Missing/unknown → live.
+        transcriptionMode = TranscriptionMode.resolve(UserDefaults.standard.string(forKey: "transcriptionMode"))
+        mlog("Transcription mode: \(transcriptionMode.rawValue)")
+
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
             selectedInputDeviceUID = saved
@@ -175,7 +184,8 @@ class AppState: ObservableObject {
         engine = kind.makeEngine()
         currentEngineKind = kind
         await engine?.setLanguage(transcriptionLanguage.rawValue)
-        mlog("prepareEngine: now using \(kind), language \(transcriptionLanguage.rawValue)")
+        await engine?.setMode(transcriptionMode)
+        mlog("prepareEngine: now using \(kind), language \(transcriptionLanguage.rawValue), mode \(transcriptionMode.rawValue)")
     }
 
     /// Change the transcription language: persist and push into the live
@@ -187,6 +197,18 @@ class AppState: ObservableObject {
         UserDefaults.standard.set(lang.rawValue, forKey: "language")
         Task { [weak self] in
             await self?.engine?.setLanguage(lang.rawValue)
+        }
+    }
+
+    /// Change when transcription runs: persist and push into the live engine
+    /// so the very next dictation uses it. Callable from the menu.
+    func setTranscriptionMode(_ mode: TranscriptionMode) {
+        guard mode != transcriptionMode else { return }
+        mlog("setTranscriptionMode: \(transcriptionMode.rawValue) -> \(mode.rawValue)")
+        transcriptionMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "transcriptionMode")
+        Task { [weak self] in
+            await self?.engine?.setMode(mode)
         }
     }
 

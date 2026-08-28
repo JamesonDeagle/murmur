@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Murmur
 
-/// The property the streaming session exists to preserve: transcribing while
-/// the user talks must produce the same text as transcribing the finished
-/// take. The reference transcript is produced by a single `whisper_full` over
+/// The property the pipeline exists to preserve: *when* transcription runs
+/// must not change *what* it produces. Both modes are fed the same take in
+/// 100 ms blocks and both are compared against a single `whisper_full` over
 /// the identical buffer.
 ///
 /// Needs a model and a raw 16 kHz mono float32 file, so it is opt-in:
@@ -13,7 +13,8 @@ import Foundation
 ///     MURMUR_TEST_AUDIO=/path/speech.raw \
 ///     MURMUR_TEST_EXPECT=/path/batch.txt \
 ///     swift test
-@Test func sessionMatchesWholeTake() async throws {
+@Test(arguments: TranscriptionMode.allCases)
+func sessionMatchesWholeTake(mode: TranscriptionMode) async throws {
     let env = ProcessInfo.processInfo.environment
     guard let modelPath = env["MURMUR_TEST_MODEL"],
           let audioPath = env["MURMUR_TEST_AUDIO"] else {
@@ -28,6 +29,7 @@ import Foundation
     let engine = WhisperEngine()
     await engine.loadModel(name: modelPath.contains("turbo") ? "turbo" : "large")
     await engine.setLanguage("ru")
+    await engine.setMode(mode)
 
     // Feed it the way the recorder does: small blocks, in order.
     let blockSize = 1_600   // 100 ms
@@ -39,12 +41,12 @@ import Foundation
 
     let text = try #require(transcript)
     #expect(!text.isEmpty)
-    print("session transcript: \(text.count) chars")
+    print("\(mode.rawValue): \(text.count) chars")
 
     if let expectPath = env["MURMUR_TEST_EXPECT"] {
         let expected = try String(contentsOfFile: expectPath, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(text == expected, "streaming transcript differs from the whole-take reference")
+        #expect(text == expected, "\(mode.rawValue) differs from the whole-take reference")
     }
 
     await engine.cleanup()

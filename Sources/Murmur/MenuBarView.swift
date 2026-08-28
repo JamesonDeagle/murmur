@@ -143,6 +143,21 @@ struct MenuBarView: View {
                 }
             }
 
+            Menu(t("Transcription", ru: "Расшифровка")) {
+                ForEach(TranscriptionMode.allCases) { mode in
+                    Button {
+                        appState.setTranscriptionMode(mode)
+                    } label: {
+                        if appState.transcriptionMode == mode {
+                            Label(mode.menuLabel, systemImage: "checkmark")
+                        } else {
+                            Text(mode.menuLabel)
+                        }
+                    }
+                    .disabled(!canEditSettings)
+                }
+            }
+
             Menu(t("Shortcut", ru: "Сочетание клавиш")) {
                 ForEach(HotkeyCombo.allCases) { combo in
                     Button {
