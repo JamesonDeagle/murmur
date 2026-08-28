@@ -71,10 +71,9 @@ actor WhisperEngine: SpeechEngine {
     /// It reports this itself as the end timestamp of the last segment it
     /// decoded, which is exactly how it advances the seek inside one call.
     private var seekCentis = 0
-    private var windowsDone = 0
     private var transcript = ""
-    private var gain: Float = 1
-    private var gainFixed = false
+    /// nil until the take's gain has been decided — see `fixGain`.
+    private var gain: Float?
     private var sessionCancelled = false
     private var mode: TranscriptionMode = .live
     private let gate = WindowGate()
@@ -85,7 +84,7 @@ actor WhisperEngine: SpeechEngine {
     }
 
     /// `.afterRecording` simply never lets a window fire, so `endSession`
-    /// finds `windowsDone == 0` and decodes the whole take in one pass from
+    /// finds the seek still at zero and decodes the whole take in one pass from
     /// offset zero — the pre-window behaviour, not a second implementation
     /// of it.
     func setMode(_ mode: TranscriptionMode) async {
@@ -187,7 +186,7 @@ actor WhisperEngine: SpeechEngine {
     func append(_ samples: [Float]) {
         guard ctx != nil, !sessionCancelled, !samples.isEmpty else { return }
 
-        if gainFixed, gain != 1 {
+        if let gain, gain != 1 {
             var scaled = samples
             var g = gain
             vDSP_vsmul(scaled, 1, &g, &scaled, 1, vDSP_Length(scaled.count))
@@ -209,7 +208,7 @@ actor WhisperEngine: SpeechEngine {
 
         fixGain()
         let tailSec = Double(buffer.count - seekSamples) / Double(Self.sampleRate)
-        mlog("WhisperEngine.endSession: \(windowsDone) window(s) already decoded, tail \(String(format: "%.1f", tailSec))s")
+        mlog("WhisperEngine.endSession: decoded up to \(seekCentis) cs, tail \(String(format: "%.1f", tailSec))s")
         _ = decode(gated: false)
 
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -224,13 +223,15 @@ actor WhisperEngine: SpeechEngine {
 
     private var seekSamples: Int { seekCentis * (Self.sampleRate / 100) }
 
+    /// Nothing of this take has been handed to whisper yet. Drives the two
+    /// parameters that only apply to a take's opening window.
+    private var isFirstDecode: Bool { seekCentis == 0 }
+
     private func resetSession() {
         buffer = []
         seekCentis = 0
-        windowsDone = 0
         transcript = ""
-        gain = 1
-        gainFixed = false
+        gain = nil
         sessionCancelled = false
     }
 
@@ -244,8 +245,8 @@ actor WhisperEngine: SpeechEngine {
     /// one window that first moment is the end of the recording, which is the
     /// old behaviour exactly.
     private func fixGain() {
-        guard !gainFixed else { return }
-        gainFixed = true
+        guard gain == nil else { return }
+        gain = 1
         guard !buffer.isEmpty else { return }
 
         var peak: Float = 0
@@ -256,15 +257,14 @@ actor WhisperEngine: SpeechEngine {
         guard candidate > 1.5 else { return }
 
         gain = candidate
-        var g = gain
+        var g = candidate
         vDSP_vsmul(buffer, 1, &g, &buffer, 1, vDSP_Length(buffer.count))
-        mlog("WhisperEngine: gain fixed at \(String(format: "%.1f", gain))x (peak \(String(format: "%.3f", peak)))")
+        mlog("WhisperEngine: gain fixed at \(String(format: "%.1f", candidate))x (peak \(String(format: "%.3f", peak)))")
     }
 
     /// Decodes from `seekCentis`. Gated runs stop after one window; the final
     /// run decodes everything left. Returns false when nothing came back and
     /// windowing should stop.
-    @discardableResult
     private func decode(gated: Bool) -> Bool {
         guard let ctx else { return false }
 
@@ -276,7 +276,7 @@ actor WhisperEngine: SpeechEngine {
         params.suppress_blank = false
         params.offset_ms = Int32(seekCentis * 10)
         params.duration_ms = 0          // never bound it — see `encoderGate`
-        params.no_context = windowsDone == 0
+        params.no_context = isFirstDecode
 
         // Bug in whisper.cpp 1.8.4: detect_language=true + language="auto"
         // produces 0 segments. Use the explicit user-picked language instead
@@ -288,7 +288,7 @@ actor WhisperEngine: SpeechEngine {
         // Style prompt goes in once per take. A single whisper_full call also
         // applies it once (carry_initial_prompt is off), and from the second
         // window on the decoder is conditioned on the real transcript anyway.
-        let promptStr = windowsDone == 0 ? strdup(language.initialPrompt) : nil
+        let promptStr = isFirstDecode ? strdup(language.initialPrompt) : nil
         params.initial_prompt = promptStr.map { UnsafePointer($0) }
 
         if gated {
@@ -297,15 +297,9 @@ actor WhisperEngine: SpeechEngine {
             params.encoder_begin_callback_user_data = Unmanaged.passUnretained(gate).toOpaque()
         }
 
-        // Local immutable copies: whisper_full takes a raw pointer into the
-        // buffer, and Swift won't hand actor-isolated storage to a closure it
-        // can't prove stays put. The array copy is O(1) — no mutation happens
-        // while the pointer is alive.
-        let audio = buffer
-        let call = params
         let started = Date()
-        let result = audio.withUnsafeBufferPointer { buf in
-            whisper_full(ctx, call, buf.baseAddress, Int32(audio.count))
+        let result = buffer.withUnsafeBufferPointer { buf in
+            whisper_full(ctx, params, buf.baseAddress, Int32(buf.count))
         }
         free(langStr)
         if let promptStr { free(promptStr) }
@@ -331,7 +325,6 @@ actor WhisperEngine: SpeechEngine {
 
         guard end > seekCentis else { return false }
         seekCentis = end
-        windowsDone += 1
         return true
     }
 

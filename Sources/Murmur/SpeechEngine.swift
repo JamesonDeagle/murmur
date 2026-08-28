@@ -67,18 +67,6 @@ extension SpeechEngine {
     func setMode(_ mode: TranscriptionMode) async {}
 }
 
-// MARK: - Transcription mode
-
-/// When transcription runs relative to the recording.
-///
-/// Both modes are the same code path with the same decoder settings. `live`
-/// lets the engine decode a whisper window the moment the recording contains
-/// one; `afterRecording` holds every window back until the take is over,
-/// which collapses to a single `whisper_full` over the finished buffer — what
-/// the app did before windows existed. The transcript is the same either way
-/// (see Tests/MurmurTests); what changes is how much of the work is already
-/// done by the time the user stops talking.
-
 // MARK: - Transcription languages
 
 /// User-selectable transcription languages. whisper.cpp needs an explicit
@@ -138,10 +126,19 @@ enum TranscriptionLanguage: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Transcription mode
+
+/// When transcription runs relative to the recording.
+///
+/// Both modes are the same code path with the same settings — the choice is
+/// only how much of the work is already done by the time the user stops
+/// talking. The transcript is identical either way, which is what
+/// `Tests/MurmurTests` pins down.
 enum TranscriptionMode: String, CaseIterable, Sendable, Identifiable {
-    /// Decode each 30 s window as soon as it has been recorded.
+    /// Transcribe as much of the take as the engine can while it is still
+    /// being recorded.
     case live
-    /// Decode nothing until the user stops, then decode the take in one pass.
+    /// Transcribe nothing until the recording is over, then do it in one pass.
     case afterRecording
 
     var id: String { rawValue }

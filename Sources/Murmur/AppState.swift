@@ -550,11 +550,23 @@ class AppState: ObservableObject {
             // the blocks in the order they were spoken.
             let (blocks, feed) = AsyncStream<[Float]>.makeStream()
             audioFeed = feed
-            transcription = Task { [engine] in
+            // Detached on purpose: this loop runs for the whole recording and
+            // has no reason to hop through the main actor ten times a second.
+            //
+            // It is also the ONLY owner of the session — begin, every append,
+            // and the ending all issue from here in order. Cancellation goes
+            // through the same task rather than racing it from outside, so a
+            // cancelled take can't have its tail decoded anyway, and a quick
+            // re-press can't have a stale abort land on the next take.
+            transcription = Task.detached { [engine] in
                 guard let engine else { return nil }
                 await engine.beginSession()
                 for await block in blocks {
                     await engine.append(block)
+                }
+                guard !Task.isCancelled else {
+                    await engine.abortSession()
+                    return nil
                 }
                 return await engine.endSession()
             }
@@ -626,17 +638,13 @@ class AppState: ObservableObject {
     func cancel() {
         guard state == .recording else { return }
         recorder.stop()
+        // Cancel before closing the feed so the pump sees the cancellation on
+        // the way out and drops the take instead of decoding a tail nobody
+        // asked for.
+        transcription?.cancel()
+        transcription = nil
         audioFeed?.finish()
         audioFeed = nil
-        // Drop the take instead of decoding a tail nobody asked for. The
-        // consumer task ends by itself once the feed is closed.
-        if let engine, let task = transcription {
-            Task {
-                await engine.abortSession()
-                _ = await task.value
-            }
-        }
-        transcription = nil
         waveform.hide()
         state = .idle
     }

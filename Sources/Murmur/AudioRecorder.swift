@@ -13,7 +13,6 @@ import AudioToolbox
 /// resampler), and `engine` is only touched from the main actor.
 class AudioRecorder: @unchecked Sendable {
     private var engine: AVAudioEngine?
-    private var nativeSampleRate: Double = 44100
     private let targetSampleRate: Double = 16000
     private var levelsCallback: (([Float]) -> Void)?
     private var audioCallback: (@Sendable ([Float]) -> Void)?
@@ -30,7 +29,7 @@ class AudioRecorder: @unchecked Sendable {
     func start(
         deviceID: AudioDeviceID? = nil,
         onLevels: @escaping ([Float]) -> Void,
-        onAudio: (@Sendable ([Float]) -> Void)? = nil
+        onAudio: @escaping @Sendable ([Float]) -> Void
     ) {
         lock.lock()
         levelsCallback = onLevels
@@ -82,7 +81,7 @@ class AudioRecorder: @unchecked Sendable {
         }
 
         let nativeFormat = inputNode.outputFormat(forBus: 0)
-        nativeSampleRate = nativeFormat.sampleRate
+        let nativeSampleRate = nativeFormat.sampleRate
         mlog("AudioRecorder: native format sr=\(nativeFormat.sampleRate) ch=\(nativeFormat.channelCount)")
 
         // Safe to assign unsynchronized: the previous stop() drained
@@ -140,11 +139,10 @@ class AudioRecorder: @unchecked Sendable {
 
         lock.lock()
         levelsCallback = nil
-        let wasStreaming = audioCallback != nil
         audioCallback = nil
         lock.unlock()
 
-        if wasStreaming { resampleQueue.sync {} }   // drain barrier
+        resampleQueue.sync {}   // drain barrier
         mlog("AudioRecorder: stopped")
     }
 
