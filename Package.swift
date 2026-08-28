@@ -28,5 +28,10 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .testTarget(
+            name: "MurmurTests",
+            dependencies: ["Murmur"],
+            path: "Tests/MurmurTests"
+        ),
     ]
 )
