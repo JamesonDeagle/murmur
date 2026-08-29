@@ -93,6 +93,11 @@ class AppState: ObservableObject {
     /// supported, English otherwise; persisted across launches.
     @Published var transcriptionLanguage: TranscriptionLanguage = .systemDefault
 
+    /// When transcription runs: alongside the recording or after it. Same
+    /// transcript either way — see `TranscriptionMode`. Persisted across
+    /// launches.
+    @Published var transcriptionMode: TranscriptionMode = .live
+
     /// Whether macOS lets us synthesize Cmd+V (the post-events /
     /// Accessibility permission). When false, dictation still "works" —
     /// the text lands on the clipboard — but auto-paste AND the global
@@ -123,6 +128,12 @@ class AppState: ObservableObject {
 
     let recorder = AudioRecorder()
     let waveform = WaveformPanel()
+
+    /// Live transcription pipeline. The recorder pushes 16 kHz blocks into
+    /// `audioFeed`; `transcription` drains them into the engine's session in
+    /// order and, once the feed closes, returns the finished transcript.
+    private var audioFeed: AsyncStream<[Float]>.Continuation?
+    private var transcription: Task<String?, Never>?
     private var recordingStartTime: Date?
     private let minRecordingSec: TimeInterval = 1.0
     var setupStarted = false
@@ -149,6 +160,10 @@ class AppState: ObservableObject {
         transcriptionLanguage = TranscriptionLanguage.resolve(UserDefaults.standard.string(forKey: "language"))
         mlog("Transcription language: \(transcriptionLanguage.rawValue)")
 
+        // Restore transcription mode. Missing/unknown → live.
+        transcriptionMode = TranscriptionMode.resolve(UserDefaults.standard.string(forKey: "transcriptionMode"))
+        mlog("Transcription mode: \(transcriptionMode.rawValue)")
+
         // Restore saved device or default to built-in mic
         if let saved = UserDefaults.standard.string(forKey: "inputDeviceUID"), !saved.isEmpty {
             selectedInputDeviceUID = saved
@@ -169,7 +184,8 @@ class AppState: ObservableObject {
         engine = kind.makeEngine()
         currentEngineKind = kind
         await engine?.setLanguage(transcriptionLanguage.rawValue)
-        mlog("prepareEngine: now using \(kind), language \(transcriptionLanguage.rawValue)")
+        await engine?.setMode(transcriptionMode)
+        mlog("prepareEngine: now using \(kind), language \(transcriptionLanguage.rawValue), mode \(transcriptionMode.rawValue)")
     }
 
     /// Change the transcription language: persist and push into the live
@@ -181,6 +197,18 @@ class AppState: ObservableObject {
         UserDefaults.standard.set(lang.rawValue, forKey: "language")
         Task { [weak self] in
             await self?.engine?.setLanguage(lang.rawValue)
+        }
+    }
+
+    /// Change when transcription runs: persist and push into the live engine
+    /// so the very next dictation uses it. Callable from the menu.
+    func setTranscriptionMode(_ mode: TranscriptionMode) {
+        guard mode != transcriptionMode else { return }
+        mlog("setTranscriptionMode: \(transcriptionMode.rawValue) -> \(mode.rawValue)")
+        transcriptionMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "transcriptionMode")
+        Task { [weak self] in
+            await self?.engine?.setMode(mode)
         }
     }
 
@@ -517,11 +545,41 @@ class AppState: ObservableObject {
                 return nil // system default
             }()
 
-            recorder.start(deviceID: deviceID) { [weak self] levels in
-                Task { @MainActor in
-                    self?.waveform.updateLevels(levels)
+            // Audio goes straight into a transcription session instead of
+            // piling up until the user stops. A single consumer task keeps
+            // the blocks in the order they were spoken.
+            let (blocks, feed) = AsyncStream<[Float]>.makeStream()
+            audioFeed = feed
+            // Detached on purpose: this loop runs for the whole recording and
+            // has no reason to hop through the main actor ten times a second.
+            //
+            // It is also the ONLY owner of the session — begin, every append,
+            // and the ending all issue from here in order. Cancellation goes
+            // through the same task rather than racing it from outside, so a
+            // cancelled take can't have its tail decoded anyway, and a quick
+            // re-press can't have a stale abort land on the next take.
+            transcription = Task.detached { [engine] in
+                guard let engine else { return nil }
+                await engine.beginSession()
+                for await block in blocks {
+                    await engine.append(block)
                 }
+                guard !Task.isCancelled else {
+                    await engine.abortSession()
+                    return nil
+                }
+                return await engine.endSession()
             }
+
+            recorder.start(
+                deviceID: deviceID,
+                onLevels: { [weak self] levels in
+                    Task { @MainActor in
+                        self?.waveform.updateLevels(levels)
+                    }
+                },
+                onAudio: { feed.yield($0) }
+            )
 
         case .recording:
             // Accidental press protection
@@ -533,19 +591,18 @@ class AppState: ObservableObject {
             }
 
             state = .transcribing
-            let audio = recorder.stop()
-            mlog("Audio captured: \(audio.count) samples (\(Double(audio.count) / 16000.0)s)")
+            recorder.stop()
             waveform.setTranscribing()
 
-            if audio.isEmpty {
-                mlog("Empty audio, skipping transcription")
-                waveform.hide()
-                state = .idle
-                return
-            }
+            // Closing the feed is what tells the session the take is over.
+            // Whatever windows already decoded while the user was talking are
+            // kept; only the tail is left to process here.
+            audioFeed?.finish()
+            audioFeed = nil
+            let rawText = await transcription?.value ?? nil
+            transcription = nil
 
-            mlog("Transcribing...")
-            if let rawText = await engine?.transcribe(audio: audio), !rawText.isEmpty {
+            if let rawText, !rawText.isEmpty {
                 let text = Self.sanitizeTranscript(rawText)
                 mlog("Result: \(text.prefix(100))")
                 waveform.hide()
@@ -581,6 +638,13 @@ class AppState: ObservableObject {
     func cancel() {
         guard state == .recording else { return }
         recorder.stop()
+        // Cancel before closing the feed so the pump sees the cancellation on
+        // the way out and drops the take instead of decoding a tail nobody
+        // asked for.
+        transcription?.cancel()
+        transcription = nil
+        audioFeed?.finish()
+        audioFeed = nil
         waveform.hide()
         state = .idle
     }

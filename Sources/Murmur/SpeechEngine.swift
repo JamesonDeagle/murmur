@@ -17,9 +17,24 @@ protocol SpeechEngine: Actor {
         onProgress: (@Sendable (DownloadProgress) -> Void)?
     ) async
 
-    /// Transcribe a 16 kHz mono Float32 audio buffer. Returns nil on empty input
-    /// or engine failure (also logged via `mlog`).
-    func transcribe(audio: [Float]) async -> String?
+    /// Start a dictation. Drops anything left from the previous one.
+    func beginSession() async
+
+    /// Feed 16 kHz mono Float32 audio captured so far. Engines that can
+    /// transcribe incrementally do that work here, while the user is still
+    /// talking; the rest may simply accumulate.
+    func append(_ samples: [Float]) async
+
+    /// No more audio is coming. Returns the transcript of the whole take, or
+    /// nil on empty input or engine failure (also logged via `mlog`).
+    func endSession() async -> String?
+
+    /// Dictation was cancelled — drop the take without transcribing it.
+    func abortSession() async
+
+    /// Select when transcription runs relative to the recording. Engines that
+    /// can only work on a finished take ignore it.
+    func setMode(_ mode: TranscriptionMode) async
 
     /// Free the in-memory model (CPU RAM + ANE/GPU buffers). Caller is expected
     /// to drop the actor reference afterwards if a full reset is wanted.
@@ -46,6 +61,10 @@ extension SpeechEngine {
 
     /// Default: engine has no language knob (e.g. auto-detecting backends).
     func setLanguage(_ code: String) async {}
+
+    /// Default: engine transcribes finished takes only, so there is nothing
+    /// to schedule.
+    func setMode(_ mode: TranscriptionMode) async {}
 }
 
 // MARK: - Transcription languages
@@ -104,6 +123,39 @@ enum TranscriptionLanguage: String, CaseIterable, Sendable, Identifiable {
             return .en
         }
         return lang
+    }
+}
+
+// MARK: - Transcription mode
+
+/// When transcription runs relative to the recording.
+///
+/// Both modes are the same code path with the same settings — the choice is
+/// only how much of the work is already done by the time the user stops
+/// talking. The transcript is identical either way, which is what
+/// `Tests/MurmurTests` pins down.
+enum TranscriptionMode: String, CaseIterable, Sendable, Identifiable {
+    /// Transcribe as much of the take as the engine can while it is still
+    /// being recorded.
+    case live
+    /// Transcribe nothing until the recording is over, then do it in one pass.
+    case afterRecording
+
+    var id: String { rawValue }
+
+    var menuLabel: String {
+        switch self {
+        case .live:
+            return t("While speaking  ·  experimental", ru: "Во время речи  ·  экспериментально")
+        case .afterRecording:
+            return t("After recording", ru: "После записи")
+        }
+    }
+
+    /// Unknown / missing stored value falls back to live.
+    static func resolve(_ raw: String?) -> TranscriptionMode {
+        guard let raw, let mode = TranscriptionMode(rawValue: raw) else { return .live }
+        return mode
     }
 }
 

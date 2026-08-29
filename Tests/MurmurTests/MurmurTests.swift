@@ -1,8 +1,53 @@
 import Testing
+import Foundation
 @testable import Murmur
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-    // Swift Testing Documentation
-    // https://developer.apple.com/documentation/testing
+/// The property the pipeline exists to preserve: *when* transcription runs
+/// must not change *what* it produces. Both modes are fed the same take in
+/// 100 ms blocks and both are compared against a single `whisper_full` over
+/// the identical buffer.
+///
+/// Needs a model and a raw 16 kHz mono float32 file, so it is opt-in:
+///
+///     MURMUR_TEST_MODEL=~/Library/.../ggml-large-v3-turbo.bin \
+///     MURMUR_TEST_AUDIO=/path/speech.raw \
+///     MURMUR_TEST_EXPECT=/path/batch.txt \
+///     swift test
+@Test(arguments: TranscriptionMode.allCases)
+func sessionMatchesWholeTake(mode: TranscriptionMode) async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard let modelPath = env["MURMUR_TEST_MODEL"],
+          let audioPath = env["MURMUR_TEST_AUDIO"] else {
+        print("skipped: set MURMUR_TEST_MODEL and MURMUR_TEST_AUDIO to run")
+        return
+    }
+
+    let raw = try Data(contentsOf: URL(fileURLWithPath: audioPath))
+    let samples = raw.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+    #expect(samples.count > 16_000)
+
+    let engine = WhisperEngine()
+    await engine.loadModel(name: modelPath.contains("turbo") ? "turbo" : "large")
+    await engine.setLanguage("ru")
+    await engine.setMode(mode)
+
+    // Feed it the way the recorder does: small blocks, in order.
+    let blockSize = 1_600   // 100 ms
+    await engine.beginSession()
+    for start in stride(from: 0, to: samples.count, by: blockSize) {
+        await engine.append(Array(samples[start..<min(start + blockSize, samples.count)]))
+    }
+    let transcript = await engine.endSession()
+
+    let text = try #require(transcript)
+    #expect(!text.isEmpty)
+    print("\(mode.rawValue): \(text.count) chars")
+
+    if let expectPath = env["MURMUR_TEST_EXPECT"] {
+        let expected = try String(contentsOfFile: expectPath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(text == expected, "\(mode.rawValue) differs from the whole-take reference")
+    }
+
+    await engine.cleanup()
 }

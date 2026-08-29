@@ -3,21 +3,38 @@ import Accelerate
 import CoreAudio
 import AudioToolbox
 
-class AudioRecorder {
+/// Captures the microphone and emits 16 kHz mono blocks as they arrive.
+///
+/// It keeps nothing: no take-sized buffer, no post-processing pass. Whoever
+/// consumes `onAudio` owns the recording. That's what lets transcription run
+/// alongside the recording instead of after it — see `WhisperEngine`'s session.
+/// Unchecked because the compiler can't see the discipline: mutable state is
+/// either guarded by `lock` (the callbacks) or owned by a single queue (the
+/// resampler), and `engine` is only touched from the main actor.
+class AudioRecorder: @unchecked Sendable {
     private var engine: AVAudioEngine?
-    private var rawSamples: [Float] = []
-    private var nativeSampleRate: Double = 44100
     private let targetSampleRate: Double = 16000
     private var levelsCallback: (([Float]) -> Void)?
+    private var audioCallback: (@Sendable ([Float]) -> Void)?
+    private var resampler = StreamingResampler(ratio: 1)
     private let numBars = 11
     private let barWeights: [Float] = [0.3, 0.5, 0.7, 0.85, 0.95, 1.0, 0.95, 0.85, 0.7, 0.5, 0.3]
     private let lock = NSLock()
 
-    func start(deviceID: AudioDeviceID? = nil, onLevels: @escaping ([Float]) -> Void) {
+    /// Resampling runs here rather than on the realtime audio thread. Serial,
+    /// so blocks reach the consumer in the order they were spoken, and
+    /// `stop()` can use it as a drain barrier.
+    private let resampleQueue = DispatchQueue(label: "com.deagle.murmur.resample")
+
+    func start(
+        deviceID: AudioDeviceID? = nil,
+        onLevels: @escaping ([Float]) -> Void,
+        onAudio: @escaping @Sendable ([Float]) -> Void
+    ) {
         lock.lock()
-        rawSamples = []
-        lock.unlock()
         levelsCallback = onLevels
+        audioCallback = onAudio
+        lock.unlock()
 
         engine = AVAudioEngine()
         guard let engine = engine else { return }
@@ -64,8 +81,12 @@ class AudioRecorder {
         }
 
         let nativeFormat = inputNode.outputFormat(forBus: 0)
-        nativeSampleRate = nativeFormat.sampleRate
+        let nativeSampleRate = nativeFormat.sampleRate
         mlog("AudioRecorder: native format sr=\(nativeFormat.sampleRate) ch=\(nativeFormat.channelCount)")
+
+        // Safe to assign unsynchronized: the previous stop() drained
+        // `resampleQueue` before returning and no tap is installed yet.
+        resampler = StreamingResampler(ratio: targetSampleRate / nativeSampleRate)
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: nativeFormat) { [weak self] pcmBuffer, _ in
             guard let self = self else { return }
@@ -74,10 +95,6 @@ class AudioRecorder {
 
             // Copy samples immediately — buffer is reused by the engine after callback returns
             let samples = Array(UnsafeBufferPointer(start: floatData, count: count))
-            self.lock.lock()
-            self.rawSamples.append(contentsOf: samples)
-            let callback = self.levelsCallback
-            self.lock.unlock()
 
             // Compute RMS for visualization
             var rms: Float = 0
@@ -88,7 +105,20 @@ class AudioRecorder {
             for i in 0..<self.numBars {
                 bars[i] = level * self.barWeights[i]
             }
-            callback?(bars)
+
+            self.lock.lock()
+            let levels = self.levelsCallback
+            let audio = self.audioCallback
+            self.lock.unlock()
+
+            levels?(bars)
+
+            if let audio {
+                self.resampleQueue.async {
+                    let block = self.resampler.resample(samples)
+                    if !block.isEmpty { audio(block) }
+                }
+            }
         }
 
         do {
@@ -99,63 +129,21 @@ class AudioRecorder {
         }
     }
 
-    @discardableResult
-    func stop() -> [Float] {
+    /// Stops capture. Every block captured before this returns has already
+    /// been handed to `onAudio` — the drain below guarantees it — so the
+    /// consumer can treat the next call as "the take is complete".
+    func stop() {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
 
         lock.lock()
         levelsCallback = nil
-        let allSamples = rawSamples
-        rawSamples = []
+        audioCallback = nil
         lock.unlock()
 
-        guard !allSamples.isEmpty else {
-            mlog("AudioRecorder: no samples captured")
-            return []
-        }
-
-        let rawMax = allSamples.map { abs($0) }.max() ?? 0
-        var rawRms: Float = 0
-        vDSP_rmsqv(allSamples, 1, &rawRms, vDSP_Length(allSamples.count))
-        mlog("AudioRecorder: raw samples=\(allSamples.count) at \(nativeSampleRate)Hz, max=\(rawMax), rms=\(rawRms)")
-
-        // Resample to 16kHz if needed
-        var output: [Float]
-        if nativeSampleRate != targetSampleRate {
-            let ratio = targetSampleRate / nativeSampleRate
-            let outputCount = Int(Double(allSamples.count) * ratio)
-            output = [Float](repeating: 0, count: outputCount)
-
-            for i in 0..<outputCount {
-                let srcIdx = Double(i) / ratio
-                let idx0 = Int(srcIdx)
-                let idx1 = min(idx0 + 1, allSamples.count - 1)
-                let frac = Float(srcIdx - Double(idx0))
-                output[i] = allSamples[idx0] * (1.0 - frac) + allSamples[idx1] * frac
-            }
-        } else {
-            output = allSamples
-        }
-
-        // Normalize audio to peak ~0.9 so whisper.cpp can detect speech
-        let peak = output.map { abs($0) }.max() ?? 0
-        if peak > 0.001 {
-            let gain = min(0.9 / peak, 50.0) // Cap gain at 50x to avoid amplifying pure noise
-            if gain > 1.5 {
-                mlog("AudioRecorder: normalizing audio, peak=\(peak), gain=\(gain)x")
-                var gainVar = gain
-                vDSP_vsmul(output, 1, &gainVar, &output, 1, vDSP_Length(output.count))
-            }
-        }
-
-        let finalMax = output.map { abs($0) }.max() ?? 0
-        var finalRms: Float = 0
-        vDSP_rmsqv(output, 1, &finalRms, vDSP_Length(output.count))
-        mlog("AudioRecorder: final output=\(output.count) samples, max=\(finalMax), rms=\(finalRms)")
-
-        return output
+        resampleQueue.sync {}   // drain barrier
+        mlog("AudioRecorder: stopped")
     }
 
     // MARK: - System default input (read-only)
@@ -174,5 +162,49 @@ class AudioRecorder {
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
         return deviceID
+    }
+}
+
+/// Linear resampler that survives being fed one block at a time.
+///
+/// Resampling a take in one pass is trivial; doing it block by block is not,
+/// because the read position lands between input samples and the next block
+/// has to pick up exactly where the last one left off. This carries both the
+/// fractional position and the previous block's last sample, so concatenating
+/// the outputs equals resampling the whole take at once.
+private struct StreamingResampler {
+    /// target rate / native rate, e.g. 16000 / 44100.
+    let ratio: Double
+
+    /// Next read index in input samples, relative to the start of the block
+    /// being handed in. Negative means "one sample before this block" — that
+    /// sample is `carry`.
+    private var position: Double = 0
+    private var carry: Float = 0
+
+    init(ratio: Double) { self.ratio = ratio }
+
+    mutating func resample(_ input: [Float]) -> [Float] {
+        guard !input.isEmpty else { return [] }
+        guard ratio != 1.0 else { return input }
+
+        let step = 1.0 / ratio
+        var output = [Float]()
+        output.reserveCapacity(Int(Double(input.count) * ratio) + 1)
+
+        var pos = position
+        while true {
+            let i0 = Int(pos.rounded(.down))
+            let i1 = i0 + 1
+            if i1 >= input.count { break }
+            let frac = Float(pos - Double(i0))
+            let s0 = i0 < 0 ? carry : input[i0]
+            output.append(s0 * (1.0 - frac) + input[i1] * frac)
+            pos += step
+        }
+
+        carry = input[input.count - 1]
+        position = pos - Double(input.count)
+        return output
     }
 }
